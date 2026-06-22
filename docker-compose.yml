@@ -1,0 +1,59 @@
+services:
+
+  # ── PostgreSQL (con TimescaleDB opcional) ──────────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: em_monitor_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       em_monitor
+      POSTGRES_USER:     em_monitor
+      POSTGRES_PASSWORD: em_monitor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U em_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Rust backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .                        # workspace root — contiene Cargo.toml + backend/
+      dockerfile: backend/Dockerfile
+    container_name: em_monitor_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:             postgres://em_monitor:em_monitor@postgres:5432/em_monitor
+      SERVER_ADDR:              0.0.0.0:3000
+      COLLECTION_INTERVAL_SECS: 15
+      METRICS_RETENTION_DAYS:   7
+      RUST_LOG:                 em_monitor=debug,tower_http=info
+    ports:
+      - "3000:3000"
+    volumes:
+      # Socket de Docker del host para monitorear contenedores locales
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+
+  # ── React frontend (nginx) ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: em_monitor_ui
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:

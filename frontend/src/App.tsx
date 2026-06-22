@@ -1,0 +1,30 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Layout } from '@/components/Layout'
+import { Dashboard } from '@/pages/Dashboard'
+import { Servers } from '@/pages/Servers'
+import { ServerDetail } from '@/pages/ServerDetail'
+import { ContainerDetail } from '@/pages/ContainerDetail'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 10_000, retry: 1 },
+  },
+})
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/servers" element={<Servers />} />
+            <Route path="/servers/:id" element={<ServerDetail />} />
+            <Route path="/servers/:id/containers/:cid" element={<ContainerDetail />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  )
+}
