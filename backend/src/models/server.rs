@@ -15,6 +15,7 @@ pub struct Server {
     pub tags: serde_json::Value,
     pub is_active: bool,
     pub status: String, // online | offline | unknown
+    pub netdata_url: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -29,6 +30,7 @@ pub struct CreateServer {
     pub port: Option<i32>,
     pub tls_enabled: Option<bool>,
     pub tags: Option<Vec<String>>,
+    pub netdata_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,4 +43,5 @@ pub struct UpdateServer {
     pub tls_enabled: Option<bool>,
     pub tags: Option<Vec<String>>,
     pub is_active: Option<bool>,
+    pub netdata_url: Option<String>,
 }

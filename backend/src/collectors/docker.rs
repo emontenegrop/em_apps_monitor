@@ -27,7 +27,7 @@ pub fn make_docker_client(
         "local" => {
             let socket = docker_host.unwrap_or("unix:///var/run/docker.sock");
             let path = socket.strip_prefix("unix://").unwrap_or(socket);
-            Docker::connect_with_unix(path, 120, bollard::API_DEFAULT_VERSION)
+            Docker::connect_with_socket(path, 120, bollard::API_DEFAULT_VERSION)
                 .map_err(|e| anyhow!("Cannot connect to local Docker socket: {e}"))?
         }
         "tcp" => {

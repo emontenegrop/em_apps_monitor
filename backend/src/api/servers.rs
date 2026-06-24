@@ -56,8 +56,8 @@ pub async fn create_server(
     let tags = serde_json::to_value(payload.tags.unwrap_or_default())?;
 
     let server = sqlx::query_as::<_, Server>(
-        r#"INSERT INTO servers (name, host, connection_type, docker_host, port, tls_enabled, tags)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"INSERT INTO servers (name, host, connection_type, docker_host, port, tls_enabled, tags, netdata_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *"#,
     )
     .bind(&payload.name)
@@ -67,6 +67,7 @@ pub async fn create_server(
     .bind(port)
     .bind(tls)
     .bind(tags)
+    .bind(&payload.netdata_url)
     .fetch_one(&state.db)
     .await?;
 
@@ -89,6 +90,7 @@ pub async fn update_server(
     let host = payload.host.unwrap_or(existing.host);
     let conn_type = payload.connection_type.unwrap_or(existing.connection_type);
     let docker_host = payload.docker_host.or(existing.docker_host);
+    let netdata_url = payload.netdata_url.or(existing.netdata_url);
     let port = payload.port.unwrap_or(existing.port);
     let tls = payload.tls_enabled.unwrap_or(existing.tls_enabled);
     let is_active = payload.is_active.unwrap_or(existing.is_active);
@@ -103,7 +105,7 @@ pub async fn update_server(
     let server = sqlx::query_as::<_, Server>(
         r#"UPDATE servers SET
              name=$2, host=$3, connection_type=$4, docker_host=$5, port=$6,
-             tls_enabled=$7, tags=$8, is_active=$9, updated_at=$10
+             tls_enabled=$7, tags=$8, is_active=$9, updated_at=$10, netdata_url=$11
            WHERE id=$1
            RETURNING *"#,
     )
@@ -117,6 +119,7 @@ pub async fn update_server(
     .bind(tags)
     .bind(is_active)
     .bind(Utc::now())
+    .bind(netdata_url)
     .fetch_one(&state.db)
     .await?;
 

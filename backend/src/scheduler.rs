@@ -9,6 +9,7 @@ use crate::{
             collect_container_stats, fetch_docker_info, list_containers, make_docker_client,
         },
         host::collect_local_host_metrics,
+        netdata::NetdataClient,
     },
     models::metrics::WsEvent,
     state::AppState,
@@ -48,6 +49,24 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
 
     for server in servers {
         let sid: Uuid = server.id;
+        let netdata_url = server.netdata_url.clone();
+
+        // ── Netdata host metrics (independent of Docker status) ──────
+        if let Some(ref url) = netdata_url {
+            match NetdataClient::new(url).collect_host_metrics(sid).await {
+                Ok(metrics) => {
+                    persist_host_metrics(state, &metrics).await;
+                    let _ = state.broadcast_tx.send(
+                        serde_json::to_string(&WsEvent::HostMetrics {
+                            server_id: sid,
+                            data: metrics,
+                        })
+                        .unwrap_or_default(),
+                    );
+                }
+                Err(e) => tracing::warn!("Netdata host metrics failed for {}: {e}", server.name),
+            }
+        }
 
         // Ensure a Docker client is cached for this server
         {
@@ -129,10 +148,10 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
             );
         }
 
-        // ── Host metrics (local only) ────────────────────────────────
-        if server.connection_type == "local" {
-            match collect_local_host_metrics(sid) {
-                Ok(metrics) => {
+        // ── Host metrics via sysinfo (local only, fallback when no Netdata) ─
+        if netdata_url.is_none() && server.connection_type == "local" {
+            match tokio::task::spawn_blocking(move || collect_local_host_metrics(sid)).await {
+                Ok(Ok(metrics)) => {
                     persist_host_metrics(state, &metrics).await;
                     let _ = state.broadcast_tx.send(
                         serde_json::to_string(&WsEvent::HostMetrics {
@@ -142,7 +161,8 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
                         .unwrap_or_default(),
                     );
                 }
-                Err(e) => tracing::warn!("Host metrics failed: {e}"),
+                Ok(Err(e)) => tracing::warn!("Host metrics failed: {e}"),
+                Err(e) => tracing::warn!("Host metrics task panicked: {e}"),
             }
         }
     }

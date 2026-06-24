@@ -1,0 +1,1 @@
+ALTER TABLE servers ADD COLUMN IF NOT EXISTS netdata_url VARCHAR(500);
