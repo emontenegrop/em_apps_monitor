@@ -117,10 +117,14 @@ pub enum CentralMessage {
     },
 }
 
+/// Código de cierre cuando una conexión nueva del mismo agente reemplaza a esta
+pub const CLOSE_REPLACED: u16 = 4000;
 /// Código de cierre del WebSocket cuando la versión del protocolo no es compatible
 pub const CLOSE_INCOMPATIBLE_PROTOCOL: u16 = 4001;
 /// Código de cierre cuando las credenciales del agente fueron revocadas
 pub const CLOSE_REVOKED: u16 = 4003;
+/// Código de cierre cuando la credencial ya está en uso por un agente en otro host
+pub const CLOSE_DUPLICATE: u16 = 4009;
 
 #[cfg(test)]
 mod tests {

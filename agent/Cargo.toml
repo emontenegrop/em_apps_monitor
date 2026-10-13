@@ -23,6 +23,12 @@ tracing        = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 clap           = { version = "4",   features = ["derive", "env"] }
 toml           = "0.8"
+fastrand       = "2"
+thiserror      = "1"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# ring como proveedor criptográfico: compila sin cmake/nasm, también para musl
+rustls         = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc           = "0.2"

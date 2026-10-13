@@ -4,10 +4,14 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod buffer;
 mod check;
 mod collectors;
 mod config;
+mod connection;
+mod credentials;
 mod snapshot;
+mod tls;
 
 use config::{AgentConfig, DEFAULT_CONFIG_PATH};
 
@@ -35,6 +39,8 @@ enum Command {
     },
     /// Diagnostica sockets, permisos y configuración
     Check,
+    /// Se conecta al central y envía snapshots periódicamente (modo servicio)
+    Run,
 }
 
 #[tokio::main]
@@ -56,6 +62,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Collect { sample_secs, compact } => collect_once(cfg, sample_secs, compact).await,
+        Command::Run => run(cfg).await,
         Command::Check => {
             if !check::run(&cfg).await {
                 std::process::exit(1);
@@ -63,6 +70,16 @@ async fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn run(cfg: AgentConfig) -> Result<()> {
+    let creds = credentials::Credentials::load(&cfg.credentials_file)?;
+    let (clients, errors) = collectors::runtime::discover(&cfg.runtimes).await;
+    for (socket, err) in &errors {
+        tracing::warn!("{socket}: {err:#}");
+    }
+    let collector = snapshot::Collector::new(cfg.clone(), clients);
+    connection::run(cfg, creds, collector).await
 }
 
 async fn collect_once(cfg: AgentConfig, sample_secs: u64, compact: bool) -> Result<()> {

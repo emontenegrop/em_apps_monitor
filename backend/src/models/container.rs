@@ -7,6 +7,8 @@ use uuid::Uuid;
 pub struct Container {
     pub id: String,
     pub server_id: Uuid,
+    /// docker | podman
+    pub runtime_kind: String,
     pub short_id: Option<String>,
     pub name: Option<String>,
     pub image: Option<String>,

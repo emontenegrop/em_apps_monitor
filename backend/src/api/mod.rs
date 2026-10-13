@@ -21,6 +21,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:id", put(servers::update_server))
         .route("/servers/:id", delete(servers::delete_server))
         .route("/servers/:id/ping", post(servers::ping_server))
+        .route("/servers/:id/agent-credentials", post(servers::rotate_agent_credentials))
+        // Agentes remotos
+        .route("/agent/ws", get(crate::agents::ws::agent_ws))
         // Containers
         .route("/servers/:id/containers", get(containers::list_containers))
         .route("/servers/:id/containers/:cid", get(containers::get_container))

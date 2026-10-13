@@ -14,6 +14,12 @@ pub struct AgentConfig {
     pub server_url: Option<String>,
     /// CA interna con la que se valida el certificado del central
     pub ca_file: PathBuf,
+    /// Credencial del agente (`server_id` + `secret`)
+    pub credentials_file: PathBuf,
+    /// Permite `http://` (sin TLS). Solo para desarrollo: la credencial viaja en claro.
+    pub allow_insecure_http: bool,
+    /// Snapshots que se guardan mientras no hay conexión (los más viejos se descartan)
+    pub buffer_max_snapshots: usize,
     pub collection_interval_secs: u64,
     /// Sockets a monitorear. Vacío = detección automática.
     pub runtimes: Vec<RuntimeEndpoint>,
@@ -37,6 +43,10 @@ impl Default for AgentConfig {
         Self {
             server_url: None,
             ca_file: PathBuf::from("/etc/em-agent/ca.crt"),
+            credentials_file: PathBuf::from("/etc/em-agent/credentials.toml"),
+            allow_insecure_http: false,
+            // 15 minutos con el intervalo por defecto de 15 s
+            buffer_max_snapshots: 60,
             collection_interval_secs: 15,
             runtimes: Vec::new(),
             host_root: None,
@@ -64,7 +74,14 @@ impl AgentConfig {
         if let Ok(url) = std::env::var("EM_AGENT_SERVER_URL") {
             cfg.server_url = Some(url);
         }
+        if let Ok(path) = std::env::var("EM_AGENT_CREDENTIALS") {
+            cfg.credentials_file = PathBuf::from(path);
+        }
+        if let Ok(path) = std::env::var("EM_AGENT_CA_FILE") {
+            cfg.ca_file = PathBuf::from(path);
+        }
         cfg.stats_concurrency = cfg.stats_concurrency.max(1);
+        cfg.buffer_max_snapshots = cfg.buffer_max_snapshots.max(1);
         cfg.collection_interval_secs = cfg.collection_interval_secs.max(5);
         Ok(cfg)
     }

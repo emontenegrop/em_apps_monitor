@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod agents;
 mod api;
 mod collectors;
 mod config;
@@ -30,13 +31,14 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::create_pool(&cfg.database_url).await?;
     db::run_migrations(&pool).await?;
 
-    let state = Arc::new(state::AppState::new(pool));
+    let state = Arc::new(state::AppState::new(pool, cfg.collection_interval_secs));
 
     tracing::info!(
-        "Starting collector (interval = {}s)…",
-        cfg.collection_interval_secs
+        "Starting collector (interval = {}s, legacy = {})…",
+        cfg.collection_interval_secs,
+        cfg.legacy_collector
     );
-    scheduler::start_collectors(state.clone(), cfg.collection_interval_secs).await;
+    scheduler::start_collectors(state.clone(), cfg.collection_interval_secs, cfg.legacy_collector).await;
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

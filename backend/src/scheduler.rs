@@ -16,15 +16,27 @@ use crate::{
 };
 
 /// Spawn the background collection loop. Never panics — errors are logged.
-pub async fn start_collectors(state: Arc<AppState>, interval_secs: u64) {
+pub async fn start_collectors(state: Arc<AppState>, interval_secs: u64, legacy: bool) {
+    if legacy {
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            let mut tick = interval(Duration::from_secs(interval_secs));
+            loop {
+                tick.tick().await;
+                if let Err(e) = run_collection_cycle(&state_clone).await {
+                    tracing::error!("Collection cycle failed: {e}");
+                }
+            }
+        });
+    }
+
+    // Servidores con agente sin snapshots recientes (conexiones medio abiertas)
     let state_clone = state.clone();
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_secs(interval_secs));
         loop {
             tick.tick().await;
-            if let Err(e) = run_collection_cycle(&state_clone).await {
-                tracing::error!("Collection cycle failed: {e}");
-            }
+            mark_stale_agents_offline(&state_clone, interval_secs * 3).await;
         }
     });
 
@@ -42,7 +54,8 @@ pub async fn start_collectors(state: Arc<AppState>, interval_secs: u64) {
 
 async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
     let servers = sqlx::query_as::<_, crate::models::server::Server>(
-        "SELECT * FROM servers WHERE is_active = true",
+        // Los servidores con agente los alimenta su agente, no este recolector
+        "SELECT * FROM servers WHERE is_active = true AND agent_secret_hash IS NULL",
     )
     .fetch_all(&state.db)
     .await?;
@@ -170,6 +183,32 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn mark_stale_agents_offline(state: &Arc<AppState>, max_age_secs: u64) {
+    let stale: Vec<Uuid> = match sqlx::query_scalar(
+        r#"UPDATE servers SET status = 'offline', updated_at = NOW()
+           WHERE agent_secret_hash IS NOT NULL AND status = 'online'
+             AND (last_seen_at IS NULL OR last_seen_at < NOW() - make_interval(secs => $1))
+           RETURNING id"#,
+    )
+    .bind(max_age_secs as f64)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!("marcando agentes inactivos: {e}");
+            return;
+        }
+    };
+    for server_id in stale {
+        tracing::warn!("agente {server_id} sin snapshots en {max_age_secs}s: offline");
+        crate::agents::ingest::broadcast(
+            state,
+            &WsEvent::ServerStatus { server_id, status: "offline".into() },
+        );
+    }
+}
+
 // ── Persistence helpers ────────────────────────────────────────────────────
 
 async fn set_server_status(state: &Arc<AppState>, server_id: Uuid, status: &str) {
@@ -192,7 +231,7 @@ async fn persist_docker_info(
              containers_total, containers_running, containers_paused, containers_stopped,
              images_total, storage_driver, runtime, docker_root_dir, swarm_active, raw_info, updated_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
-           ON CONFLICT (server_id) DO UPDATE SET
+           ON CONFLICT (server_id, runtime_kind) DO UPDATE SET
              docker_version=$2, api_version=$3, os_type=$4, arch=$5, kernel_version=$6,
              containers_total=$7, containers_running=$8, containers_paused=$9, containers_stopped=$10,
              images_total=$11, storage_driver=$12, runtime=$13, docker_root_dir=$14,
@@ -237,7 +276,7 @@ async fn persist_containers(
                (id, server_id, short_id, name, image, image_id, status, state,
                 container_created_at, ports, labels, networks, mounts, command, updated_at)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
-               ON CONFLICT (id, server_id) DO UPDATE SET
+               ON CONFLICT (server_id, runtime_kind, id) DO UPDATE SET
                  name=$4, image=$5, image_id=$6, status=$7, state=$8,
                  container_created_at=$9, ports=$10, labels=$11, networks=$12,
                  mounts=$13, command=$14, updated_at=NOW()"#,

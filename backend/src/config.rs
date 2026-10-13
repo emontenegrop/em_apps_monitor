@@ -6,6 +6,8 @@ pub struct Config {
     pub server_addr: String,
     pub collection_interval_secs: u64,
     pub _metrics_retention_days: i32,
+    /// Recolector central vía bollard para servidores sin agente (transición; se retira en la fase 7)
+    pub legacy_collector: bool,
 }
 
 impl Config {
@@ -23,6 +25,9 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(7),
+            legacy_collector: std::env::var("LEGACY_COLLECTOR")
+                .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+                .unwrap_or(true),
         })
     }
 }

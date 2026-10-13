@@ -17,6 +17,15 @@ pub struct Server {
     pub status: String, // online | offline | unknown
     pub netdata_url: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
+    // ── Agente (agent_secret_hash nunca se expone) ──
+    pub agent_version: Option<String>,
+    pub agent_protocol_version: Option<i32>,
+    pub hostname: Option<String>,
+    pub os: Option<String>,
+    pub arch: Option<String>,
+    /// [{kind, socket, version, rootless, error}]
+    pub runtimes: serde_json::Value,
+    pub last_connected_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

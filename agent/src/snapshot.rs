@@ -39,6 +39,18 @@ impl Collector {
         }
     }
 
+    pub fn runtime_count(&self) -> usize {
+        self.runtimes.len()
+    }
+
+    /// Reemplaza los runtimes (tras una nueva detección); se pierde el historial de stats
+    pub fn replace_runtimes(&mut self, clients: Vec<RuntimeClient>) {
+        self.runtimes = clients
+            .into_iter()
+            .map(|client| RuntimeState { client, stats: StatsCollector::default(), containers_hash: None })
+            .collect();
+    }
+
     pub fn runtimes(&self) -> Vec<RuntimeDescriptor> {
         self.runtimes.iter().map(|r| r.client.descriptor()).collect()
     }
