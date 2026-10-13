@@ -9,3 +9,7 @@ frontend/dist/
 **/.env
 **/.env.*
 !**/.env.example
+
+# PKI interna — no enviar claves al contexto de build
+pki/ca/
+pki/issued/

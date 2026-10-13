@@ -54,6 +54,11 @@ services:
       - backend
     ports:
       - "8080:80"
+      - "8443:443"
+    volumes:
+      # Certificado del central emitido por la CA interna: ./pki/em-pki.sh server central <SAN...>
+      - ./pki/issued/central.crt:/etc/nginx/certs/server.crt:ro
+      - ./pki/issued/central.key:/etc/nginx/certs/server.key:ro
 
 volumes:
   postgres_data:

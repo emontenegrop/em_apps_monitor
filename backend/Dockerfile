@@ -11,18 +11,21 @@ WORKDIR /app
 # 1. Copy workspace manifests + frozen lockfile for reproducible dep resolution
 COPY Cargo.toml Cargo.lock ./
 COPY backend/Cargo.toml ./backend/
+COPY crates/protocol/Cargo.toml ./crates/protocol/
 
 # 2. Dummy binary to cache compiled dependencies before copying real src
-RUN mkdir -p backend/src && echo 'fn main(){}' > backend/src/main.rs && \
+RUN mkdir -p backend/src crates/protocol/src && echo 'fn main(){}' > backend/src/main.rs && \
+    touch crates/protocol/src/lib.rs && \
     cargo build --release -p em_monitor || true && \
-    rm -rf backend/src
+    rm -rf backend/src crates/protocol/src
 
 # 3. Copy real source and build
 COPY backend/src        ./backend/src
 COPY backend/migrations ./backend/migrations
+COPY crates/protocol/src ./crates/protocol/src
 
 # Touch main.rs to invalidate cached binary and force full re-link
-RUN touch backend/src/main.rs && cargo build --release -p em_monitor
+RUN touch backend/src/main.rs crates/protocol/src/lib.rs && cargo build --release -p em_monitor
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim

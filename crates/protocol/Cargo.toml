@@ -1,0 +1,17 @@
+[package]
+name = "em_protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Tipos compartidos entre em-agent y el backend de EM Monitor"
+
+[features]
+default = []
+# Deriva sqlx::FromRow en los modelos; solo lo activa el backend
+sqlx = ["dep:sqlx"]
+
+[dependencies]
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid       = { version = "1", features = ["v4", "serde"] }
+chrono     = { version = "0.4", features = ["serde"] }
+sqlx       = { version = "0.7", optional = true, default-features = false, features = ["macros", "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }

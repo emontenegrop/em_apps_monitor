@@ -14,3 +14,7 @@ backend/.env
 
 # OS
 .DS_Store
+
+# PKI interna — claves y certificados emitidos (nunca a git)
+pki/ca/
+pki/issued/
