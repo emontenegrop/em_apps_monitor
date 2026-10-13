@@ -31,7 +31,9 @@ pub struct RuntimeDescriptor {
 pub struct RuntimeSnapshot {
     pub kind: RuntimeKind,
     pub socket: String,
-    pub info: DockerInfo,
+    /// `None` si el runtime no respondió en este ciclo (ver `error`)
+    pub info: Option<DockerInfo>,
+    pub error: Option<String>,
     /// `None` cuando la lista no cambió desde el snapshot anterior
     pub containers: Option<Vec<DockerContainer>>,
     pub stats: Vec<ContainerMetrics>,

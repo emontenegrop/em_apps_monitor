@@ -12,6 +12,9 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY backend/Cargo.toml ./backend/
 COPY crates/protocol/Cargo.toml ./crates/protocol/
+# El agente es miembro del workspace: basta su manifiesto y un main vacío
+COPY agent/Cargo.toml ./agent/
+RUN mkdir -p agent/src && echo 'fn main(){}' > agent/src/main.rs
 
 # 2. Dummy binary to cache compiled dependencies before copying real src
 RUN mkdir -p backend/src crates/protocol/src && echo 'fn main(){}' > backend/src/main.rs && \

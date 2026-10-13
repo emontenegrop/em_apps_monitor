@@ -2,6 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// Los campos de red y disco que envía el agente son tasas en bytes/s, no contadores acumulados.
+// Son `None` en la primera muestra de un contenedor o tras un reinicio de contadores.
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct HostMetrics {
