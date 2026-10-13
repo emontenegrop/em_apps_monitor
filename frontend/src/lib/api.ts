@@ -43,7 +43,10 @@ export interface EnrollmentToken {
   expires_at: string
   server_url: string
   ca_fingerprint: string | null
+  /** Instalación completa en un host con systemd */
   install_command: string | null
+  /** Solo la inscripción (binario ya instalado o modo contenedor) */
+  enroll_command: string | null
 }
 
 // ── Servers ────────────────────────────────────────────────────────────────

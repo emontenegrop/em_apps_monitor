@@ -86,6 +86,7 @@ async fn collect_runtime(rt: &mut RuntimeState, concurrency: usize, force_contai
     let mut snap = RuntimeSnapshot {
         kind: rt.client.kind,
         socket: rt.client.socket.clone(),
+        rootless: rt.client.rootless,
         info: None,
         error: None,
         containers: None,

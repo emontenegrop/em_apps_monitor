@@ -20,7 +20,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/auth/logout", post(auth::logout))
         .route("/agent/ws", get(agents::ws::agent_ws))
         .route("/agent/enroll", post(agents::enroll::enroll))
-        .route("/agent/ca.crt", get(agents::enroll::ca_certificate));
+        .route("/agent/ca.crt", get(agents::enroll::ca_certificate))
+        .route("/agent/ca.der", get(agents::enroll::ca_certificate_der));
 
     let protected = Router::new()
         .route("/auth/me", get(auth::me))

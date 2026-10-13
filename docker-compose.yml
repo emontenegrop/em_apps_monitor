@@ -67,6 +67,32 @@ services:
       # Certificado del central emitido por la CA interna: ./pki/em-pki.sh server central <SAN...>
       - ./pki/issued/central.crt:/etc/nginx/certs/server.crt:ro
       - ./pki/issued/central.key:/etc/nginx/certs/server.key:ro
+      # Instalador y binarios del agente: ./agent/build-release.sh
+      - ./dist/agent:/usr/share/nginx/agent:ro
+
+  # ── Agente para el host del propio central (opcional) ────────────────────
+  # 1. Genera una ficha en la UI y copia la huella de la CA.
+  # 2. docker compose --profile agent run --rm agent enroll --url https://frontend --token FICHA --ca-fingerprint HUELLA
+  # 3. docker compose --profile agent up -d agent
+  agent:
+    profiles: ["agent"]
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: em_monitor_agent
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    # Ver los procesos del host (no los del contenedor)
+    pid: host
+    environment:
+      # Discos del host montado en /host
+      EM_AGENT_HOST_ROOT: /host
+    volumes:
+      - agent_config:/etc/em-agent
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:ro
 
 volumes:
   postgres_data:
+  agent_config:

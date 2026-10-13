@@ -30,8 +30,9 @@ impl Credentials {
 fn warn_if_readable_by_others(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     if let Ok(meta) = std::fs::metadata(path) {
-        if meta.permissions().mode() & 0o077 != 0 {
-            tracing::warn!("{} es legible por otros usuarios; usa chmod 600", path.display());
+        // El grupo puede leerla (el instalador deja 0640 root:em-agent); el resto no
+        if meta.permissions().mode() & 0o007 != 0 {
+            tracing::warn!("{} es legible por otros usuarios; usa chmod 640 o 600", path.display());
         }
     }
 }

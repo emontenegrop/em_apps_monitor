@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{io::IsTerminal, path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -70,7 +70,12 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "em_agent=info".into()),
         )
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        // Sin colores fuera de una terminal (journald los mostraría como códigos ANSI)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(std::io::stderr().is_terminal()),
+        )
         .init();
 
     // La inscripción no necesita (ni debe fallar por) una configuración previa

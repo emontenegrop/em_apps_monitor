@@ -31,6 +31,10 @@ pub struct RuntimeDescriptor {
 pub struct RuntimeSnapshot {
     pub kind: RuntimeKind,
     pub socket: String,
+    /// El runtime corre sin root. Va en cada snapshot porque el agente puede detectar
+    /// runtimes después del Hello (p. ej. Docker o Podman arrancaron más tarde).
+    #[serde(default)]
+    pub rootless: bool,
     /// `None` si el runtime no respondió en este ciclo (ver `error`)
     pub info: Option<DockerInfo>,
     pub error: Option<String>,

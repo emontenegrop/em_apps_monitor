@@ -29,33 +29,56 @@ use crate::{
 /// Validez de una ficha de inscripción
 const ENROLLMENT_TTL_MINUTES: i32 = 60;
 
-/// CA interna que se entrega a los agentes, con su huella SHA-256 (del DER, en hex)
+/// CA interna que se entrega a los agentes, con su huella SHA-256 (del DER, en hex).
+/// El DER se publica aparte para que el instalador la verifique con `sha256sum`.
 #[derive(Clone)]
 pub struct AgentCa {
     pub pem: String,
+    pub der: Vec<u8>,
     pub fingerprint: String,
 }
 
 impl AgentCa {
     pub fn load(path: &FsPath) -> anyhow::Result<Self> {
         let pem = std::fs::read_to_string(path)?;
-        Ok(Self { fingerprint: pem_fingerprint(&pem)?, pem })
+        let der = pem_to_der(&pem)?;
+        Ok(Self { fingerprint: hex::encode(Sha256::digest(&der)), der, pem })
     }
 }
 
-/// Huella SHA-256 del primer certificado de un PEM
-pub fn pem_fingerprint(pem: &str) -> anyhow::Result<String> {
+/// DER del primer certificado de un PEM
+pub fn pem_to_der(pem: &str) -> anyhow::Result<Vec<u8>> {
     let b64: String = pem
         .lines()
         .skip_while(|l| !l.starts_with("-----BEGIN CERTIFICATE-----"))
         .skip(1)
         .take_while(|l| !l.starts_with("-----END CERTIFICATE-----"))
+        .map(str::trim)
         .collect();
     if b64.is_empty() {
         anyhow::bail!("el PEM no contiene un certificado");
     }
-    let der = base64::engine::general_purpose::STANDARD.decode(b64.trim())?;
-    Ok(hex::encode(Sha256::digest(der)))
+    Ok(base64::engine::general_purpose::STANDARD.decode(b64)?)
+}
+
+/// Huella SHA-256 del primer certificado de un PEM
+#[cfg(test)]
+pub fn pem_fingerprint(pem: &str) -> anyhow::Result<String> {
+    Ok(hex::encode(Sha256::digest(pem_to_der(pem)?)))
+}
+
+/// Comando de instalación para hosts con systemd. Verifica la CA por huella con
+/// herramientas de coreutils y descarga el instalador validando TLS contra ella.
+pub fn install_command(server_url: &str, token: &str, fingerprint: &str) -> String {
+    [
+        format!("curl -fsSk {server_url}/api/agent/ca.der -o /tmp/em-ca.der && \\"),
+        format!("echo \"{fingerprint}  /tmp/em-ca.der\" | sha256sum -c - && \\"),
+        "{ echo '-----BEGIN CERTIFICATE-----'; base64 -w 64 /tmp/em-ca.der; echo '-----END CERTIFICATE-----'; } > /tmp/em-ca.crt && \\"
+            .to_string(),
+        format!("curl -fsS --cacert /tmp/em-ca.crt {server_url}/agent/install.sh | sudo sh -s -- \\"),
+        format!("  --url {server_url} --token {token} --ca-fingerprint {fingerprint} --ca-file /tmp/em-ca.crt"),
+    ]
+    .join("\n")
 }
 
 #[derive(Serialize)]
@@ -65,7 +88,10 @@ pub struct EnrollmentToken {
     pub expires_at: DateTime<Utc>,
     pub server_url: String,
     pub ca_fingerprint: Option<String>,
+    /// Instalación completa en un host con systemd (descarga, verificación, servicio)
     pub install_command: Option<String>,
+    /// Solo la inscripción, para un binario ya instalado o el modo contenedor
+    pub enroll_command: Option<String>,
 }
 
 /// URL pública del central: PUBLIC_URL o, si no está definida, la del Host de la petición
@@ -102,15 +128,24 @@ pub async fn create_enrollment_token(
 
     let server_url = public_url(&state, &headers);
     let ca_fingerprint = state.agent_ca.as_ref().map(|ca| ca.fingerprint.clone());
-    let install_command = ca_fingerprint.as_ref().map(|fp| {
-        format!("sudo em-agent enroll --url {server_url} --token {token} --ca-fingerprint {fp}")
-    });
+    let install_command = ca_fingerprint.as_ref().map(|fp| install_command(&server_url, &token, fp));
+    let enroll_command = ca_fingerprint
+        .as_ref()
+        .map(|fp| format!("em-agent enroll --url {server_url} --token {token} --ca-fingerprint {fp}"));
     if ca_fingerprint.is_none() {
         tracing::warn!("sin AGENT_CA_FILE: el comando de instalación no puede incluir la huella de la CA");
     }
     tracing::info!("'{}' generó una ficha de inscripción para el servidor {id}", user.username);
 
-    Ok(Json(EnrollmentToken { server_id: id, token, expires_at, server_url, ca_fingerprint, install_command }))
+    Ok(Json(EnrollmentToken {
+        server_id: id,
+        token,
+        expires_at,
+        server_url,
+        ca_fingerprint,
+        install_command,
+        enroll_command,
+    }))
 }
 
 /// `POST /api/servers/:id/revoke` (administrador): invalida la credencial y la ficha
@@ -189,6 +224,14 @@ pub async fn enroll(
     Ok(Json(EnrollResponse { server_id, secret }).into_response())
 }
 
+/// `GET /api/agent/ca.der` (público): la CA en DER; su sha256 es la huella
+pub async fn ca_certificate_der(State(state): State<Arc<AppState>>) -> Response {
+    match &state.agent_ca {
+        Some(ca) => ([(header::CONTENT_TYPE, "application/pkix-cert")], ca.der.clone()).into_response(),
+        None => (StatusCode::NOT_FOUND, "el central no tiene AGENT_CA_FILE configurado").into_response(),
+    }
+}
+
 /// `GET /api/agent/ca.crt` (público): la CA interna, para que el agente la verifique
 /// contra la huella del comando de instalación
 pub async fn ca_certificate(State(state): State<Arc<AppState>>) -> Response {
@@ -209,5 +252,18 @@ mod tests {
         let expected = include_str!("../../tests/fixtures/test-ca.sha256").trim();
         assert_eq!(pem_fingerprint(pem).unwrap(), expected);
         assert!(pem_fingerprint("no es un pem").is_err());
+    }
+
+    #[test]
+    fn install_command_verifies_ca_before_running_installer() {
+        let cmd = install_command("https://c:8443", "TOKEN", "ab12");
+        let lines: Vec<&str> = cmd.lines().collect();
+        assert_eq!(lines.len(), 5, "{cmd}");
+        assert_eq!(lines[0], "curl -fsSk https://c:8443/api/agent/ca.der -o /tmp/em-ca.der && \\");
+        assert_eq!(lines[1], "echo \"ab12  /tmp/em-ca.der\" | sha256sum -c - && \\");
+        assert!(lines[3].starts_with("curl -fsS --cacert /tmp/em-ca.crt https://c:8443/agent/install.sh | sudo sh -s --"));
+        assert_eq!(lines[4], "  --url https://c:8443 --token TOKEN --ca-fingerprint ab12 --ca-file /tmp/em-ca.crt");
+        // Solo la primera descarga (la CA, validada por huella) omite la verificación TLS
+        assert_eq!(cmd.matches(" -fsSk ").count(), 1);
     }
 }

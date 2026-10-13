@@ -122,23 +122,25 @@ impl SessionIngest {
         Ok(())
     }
 
-    /// Descriptores del Hello más el error de cada runtime en este ciclo
+    /// Runtimes del snapshot en vivo, con su error de este ciclo. La versión sale de la
+    /// info del ciclo o, si el runtime no respondió, de lo que informó el Hello.
     fn runtime_status(&self, snap: &Snapshot) -> serde_json::Value {
-        let list: Vec<serde_json::Value> = self
+        let list: Vec<serde_json::Value> = snap
             .runtimes
             .iter()
-            .map(|d| {
-                let error = snap
-                    .runtimes
-                    .iter()
-                    .find(|r| r.kind == d.kind && r.socket == d.socket)
-                    .and_then(|r| r.error.clone());
+            .map(|r| {
+                let hello = self.runtimes.iter().find(|d| d.kind == r.kind && d.socket == r.socket);
+                let version = r
+                    .info
+                    .as_ref()
+                    .and_then(|i| i.docker_version.clone())
+                    .or_else(|| hello.and_then(|d| d.version.clone()));
                 serde_json::json!({
-                    "kind": d.kind,
-                    "socket": d.socket,
-                    "version": d.version,
-                    "rootless": d.rootless,
-                    "error": error,
+                    "kind": r.kind,
+                    "socket": r.socket,
+                    "version": version,
+                    "rootless": r.rootless || hello.is_some_and(|d| d.rootless),
+                    "error": r.error,
                 })
             })
             .collect();
