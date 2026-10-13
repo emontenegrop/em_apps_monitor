@@ -24,6 +24,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
+
+    #[error("Agent error: {0}")]
+    Agent(#[from] crate::agents::registry::RpcError),
 }
 
 impl IntoResponse for AppError {
@@ -42,6 +45,15 @@ impl IntoResponse for AppError {
             AppError::Json(e) => {
                 tracing::error!("JSON error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialization error: {e}"))
+            }
+            AppError::Agent(e) => {
+                use crate::agents::registry::RpcError;
+                let status = match e {
+                    RpcError::Offline => StatusCode::SERVICE_UNAVAILABLE,
+                    RpcError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+                    RpcError::Agent(_) => StatusCode::BAD_GATEWAY,
+                };
+                (status, e.to_string())
             }
             AppError::Internal(e) => {
                 tracing::error!("Internal error: {e}");

@@ -1,6 +1,7 @@
 //! Conexión persistente agente → central por WebSocket.
 
 use std::{
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -11,14 +12,17 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use em_protocol::{
     messages::{
-        AgentMessage, CentralMessage, RequestMethod, RequestResult, RuntimeDescriptor, Snapshot,
+        AgentMessage, CentralMessage, RequestResult, RuntimeDescriptor, Snapshot,
         CLOSE_DUPLICATE, CLOSE_INCOMPATIBLE_PROTOCOL, CLOSE_REPLACED, CLOSE_REVOKED,
     },
     PROTOCOL_VERSION,
 };
 use futures_util::{SinkExt, StreamExt};
 use sysinfo::System;
-use tokio::{sync::watch, time::Instant};
+use tokio::{
+    sync::{mpsc, watch, Semaphore},
+    time::Instant,
+};
 use tokio_tungstenite::{
     connect_async_tls_with_config,
     tungstenite::{
@@ -36,6 +40,7 @@ use crate::{
     collectors::runtime,
     config::{AgentConfig, RuntimeEndpoint},
     credentials::Credentials,
+    rpc,
     snapshot::Collector,
     tls,
 };
@@ -55,6 +60,10 @@ const BACKOFF_FATAL: Duration = Duration::from_secs(600);
 /// Espera tras ser reemplazado por otra conexión con la misma credencial
 const BACKOFF_REPLACED: Duration = Duration::from_secs(60);
 const REDISCOVER_EVERY: Duration = Duration::from_secs(60);
+/// Solicitudes del central que se atienden a la vez
+const MAX_CONCURRENT_REQUESTS: usize = 4;
+/// Una respuesta más grande no cabría en un mensaje del protocolo
+const MAX_RESPONSE_BYTES: usize = MAX_MESSAGE_BYTES - 64 * 1024;
 
 type Ws = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -65,6 +74,10 @@ struct Shared {
     force_containers: AtomicBool,
     interval: watch::Sender<u64>,
     runtimes: Mutex<Vec<RuntimeDescriptor>>,
+    /// Clientes de los runtimes para las solicitudes del central
+    clients: Mutex<rpc::Clients>,
+    host_root: Option<PathBuf>,
+    request_slots: Arc<Semaphore>,
 }
 
 /// Cómo terminó una sesión
@@ -115,6 +128,9 @@ pub async fn run(cfg: AgentConfig, creds: Credentials, collector: Collector) -> 
         force_containers: AtomicBool::new(true),
         interval: watch::Sender::new(cfg.collection_interval_secs),
         runtimes: Mutex::new(collector.runtimes()),
+        clients: Mutex::new(collector.clients()),
+        host_root: cfg.host_root.clone(),
+        request_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
     });
 
     tokio::spawn(collect_loop(collector, shared.clone(), cfg.runtimes.clone()));
@@ -193,6 +209,7 @@ async fn collect_loop(mut collector: Collector, shared: Arc<Shared>, configured:
                 tracing::info!("runtimes detectados: {}", clients.len());
                 collector.replace_runtimes(clients);
                 *shared.runtimes.lock().unwrap() = collector.runtimes();
+                *shared.clients.lock().unwrap() = collector.clients();
                 shared.force_containers.store(true, Ordering::Relaxed);
             }
         }
@@ -294,9 +311,12 @@ async fn session(
     // ── Bucle principal ──────────────────────────────────────────────────
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut last_rx = Instant::now();
+    // Respuestas de las solicitudes en curso (se atienden en tareas aparte)
+    let (reply_tx, mut reply_rx) = mpsc::channel::<AgentMessage>(MAX_CONCURRENT_REQUESTS * 2);
     loop {
         tokio::select! {
             _ = shared.buffer.notify.notified() => send_pending(&mut sink, shared).await?,
+            Some(reply) = reply_rx.recv() => send_json(&mut sink, &reply).await?,
             _ = ping.tick() => {
                 if last_rx.elapsed() > IDLE_TIMEOUT {
                     return Err(anyhow!("sin respuesta del central en {}s", IDLE_TIMEOUT.as_secs()).into());
@@ -311,11 +331,7 @@ async fn session(
                 };
                 last_rx = Instant::now();
                 match msg {
-                    Message::Text(text) => {
-                        if let Some(reply) = handle_central(&text, shared) {
-                            send_json(&mut sink, &reply).await?;
-                        }
-                    }
+                    Message::Text(text) => handle_central(&text, shared, &reply_tx),
                     Message::Close(frame) => {
                         return Ok(SessionEnd::Closed(frame.map(|f| u16::from(f.code))));
                     }
@@ -326,16 +342,25 @@ async fn session(
     }
 }
 
-/// Procesa un mensaje del central y devuelve la respuesta, si corresponde
-fn handle_central(text: &str, shared: &Shared) -> Option<AgentMessage> {
+/// Procesa un mensaje del central. Las solicitudes se atienden en una tarea aparte
+/// y su respuesta vuelve por `replies`, sin frenar el envío de snapshots.
+fn handle_central(text: &str, shared: &Shared, replies: &mpsc::Sender<AgentMessage>) {
     match serde_json::from_str::<CentralMessage>(text) {
         Ok(CentralMessage::Request { req_id, method }) => {
-            let result = match method {
-                RequestMethod::Ping => RequestResult::Ok(serde_json::json!({ "pong": true })),
-                // Las demás solicitudes bajo demanda llegan en la fase 3
-                other => RequestResult::Error(format!("operación no soportada todavía: {other:?}")),
-            };
-            Some(AgentMessage::Response { req_id, result })
+            tracing::debug!("solicitud {req_id}: {method:?}");
+            let clients = shared.clients.lock().unwrap().clone();
+            let host_root = shared.host_root.clone();
+            let slots = shared.request_slots.clone();
+            let replies = replies.clone();
+            tokio::spawn(async move {
+                let _permit = slots.acquire_owned().await;
+                let mut result = rpc::handle(method, clients, host_root).await;
+                let size = serde_json::to_vec(&result).map(|v| v.len()).unwrap_or(0);
+                if size > MAX_RESPONSE_BYTES {
+                    result = RequestResult::Error(format!("respuesta demasiado grande ({size} bytes)"));
+                }
+                let _ = replies.send(AgentMessage::Response { req_id, result }).await;
+            });
         }
         Ok(CentralMessage::ConfigUpdate { collection_interval_secs, log_level }) => {
             if let Some(secs) = collection_interval_secs {
@@ -345,13 +370,9 @@ fn handle_central(text: &str, shared: &Shared) -> Option<AgentMessage> {
             if let Some(level) = log_level {
                 tracing::info!("cambio de nivel de log a {level} aún no soportado");
             }
-            None
         }
-        Ok(CentralMessage::Welcome { .. }) => None,
-        Err(e) => {
-            tracing::warn!("mensaje inválido del central: {e}");
-            None
-        }
+        Ok(CentralMessage::Welcome { .. }) => {}
+        Err(e) => tracing::warn!("mensaje inválido del central: {e}"),
     }
 }
 

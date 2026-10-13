@@ -51,6 +51,11 @@ impl Collector {
             .collect();
     }
 
+    /// Clientes de los runtimes, para atender solicitudes del central
+    pub fn clients(&self) -> crate::rpc::Clients {
+        self.runtimes.iter().map(|r| (r.client.kind, r.client.docker.clone())).collect()
+    }
+
     pub fn runtimes(&self) -> Vec<RuntimeDescriptor> {
         self.runtimes.iter().map(|r| r.client.descriptor()).collect()
     }

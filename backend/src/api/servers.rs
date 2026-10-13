@@ -163,8 +163,19 @@ pub async fn ping_server(
             .fetch_one(&state.db)
             .await?;
     if has_agent {
-        let status = if state.agents.is_connected(id).await { "online" } else { "offline" };
-        return Ok(Json(serde_json::json!({ "status": status, "via": "agent" })));
+        let started = std::time::Instant::now();
+        let res = state
+            .agents
+            .request(id, em_protocol::messages::RequestMethod::Ping, std::time::Duration::from_secs(5))
+            .await;
+        return Ok(Json(match res {
+            Ok(_) => serde_json::json!({
+                "status": "online",
+                "via": "agent",
+                "latency_ms": started.elapsed().as_millis() as u64,
+            }),
+            Err(e) => serde_json::json!({ "status": "offline", "via": "agent", "error": e.to_string() }),
+        }));
     }
 
     // Remove any cached client so it rebuilds

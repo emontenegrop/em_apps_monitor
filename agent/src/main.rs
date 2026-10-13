@@ -10,6 +10,7 @@ mod collectors;
 mod config;
 mod connection;
 mod credentials;
+mod rpc;
 mod snapshot;
 mod tls;
 

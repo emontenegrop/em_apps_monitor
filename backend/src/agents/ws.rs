@@ -149,7 +149,7 @@ async fn run_session(state: Arc<AppState>, server_id: Uuid, socket: WebSocket) -
 
     // ── Lectura ──────────────────────────────────────────────────────────
     let mut ingest = SessionIngest::new(server_id, runtimes);
-    let result = read_loop(&state, &mut stream, &mut ingest, &mut writer).await;
+    let result = read_loop(&state, server_id, &mut stream, &mut ingest, &mut writer).await;
 
     writer.abort();
     if state.agents.unregister(server_id, conn_id).await {
@@ -165,6 +165,7 @@ async fn run_session(state: Arc<AppState>, server_id: Uuid, socket: WebSocket) -
 
 async fn read_loop(
     state: &Arc<AppState>,
+    server_id: Uuid,
     stream: &mut futures_util::stream::SplitStream<WebSocket>,
     ingest: &mut SessionIngest,
     writer: &mut tokio::task::JoinHandle<()>,
@@ -209,9 +210,14 @@ async fn read_loop(
                 }
                 tracing::info!("backfill recibido: {n} snapshots");
             }
-            Ok(AgentMessage::Response { req_id, .. }) | Ok(AgentMessage::LogChunk { req_id, .. }) => {
-                // Las solicitudes bajo demanda llegan en la fase 3
-                tracing::debug!("respuesta {req_id} sin solicitud pendiente");
+            Ok(AgentMessage::Response { req_id, result }) => {
+                if !state.agents.resolve(server_id, req_id, result) {
+                    tracing::debug!("respuesta {req_id} sin solicitud pendiente (¿llegó tarde?)");
+                }
+            }
+            Ok(AgentMessage::LogChunk { req_id, .. }) => {
+                // Reservado para logs en vivo; todavía no se piden
+                tracing::debug!("LogChunk {req_id} ignorado");
             }
             Ok(AgentMessage::Hello { .. }) => tracing::warn!("Hello repetido ignorado"),
             Err(e) => tracing::warn!("mensaje inválido del agente: {e}"),
