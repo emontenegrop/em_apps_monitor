@@ -120,6 +120,7 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
                 let _ = state.broadcast_tx.send(
                     serde_json::to_string(&WsEvent::DockerInfo {
                         server_id: sid,
+                        runtime: None,
                         data: info,
                     })
                     .unwrap_or_default(),

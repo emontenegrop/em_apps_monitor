@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     collectors::host::collect_disk_usage,
     error::ApiResult,
-    models::metrics::{ContainerMetrics, DockerInfo, DiskUsage, HostMetrics},
+    models::metrics::{ContainerMetrics, DockerInfo, DiskUsage, HostMetrics, RuntimeInfo},
     state::AppState,
 };
 
@@ -91,13 +91,27 @@ pub async fn docker_info(
     Path(server_id): Path<Uuid>,
 ) -> ApiResult<Json<Option<DockerInfo>>> {
     let info = sqlx::query_as::<_, DockerInfo>(
-        "SELECT * FROM docker_info WHERE server_id = $1",
+        "SELECT * FROM docker_info WHERE server_id = $1 ORDER BY runtime_kind LIMIT 1",
     )
     .bind(server_id)
     .fetch_optional(&state.db)
     .await?;
 
     Ok(Json(info))
+}
+
+/// Info de cada runtime del servidor (Docker y/o Podman)
+pub async fn runtimes(
+    State(state): State<Arc<AppState>>,
+    Path(server_id): Path<Uuid>,
+) -> ApiResult<Json<Vec<RuntimeInfo>>> {
+    let rows = sqlx::query_as::<_, RuntimeInfo>(
+        "SELECT * FROM docker_info WHERE server_id = $1 ORDER BY runtime_kind",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 pub async fn disk_usage(

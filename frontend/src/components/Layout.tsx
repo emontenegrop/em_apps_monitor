@@ -2,10 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, LogOut, Server, UserRound } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { markLoggingOut } from '@/lib/api'
 import { authApi } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
 async function logout() {
+  markLoggingOut()
   try {
     await authApi.logout()
   } finally {

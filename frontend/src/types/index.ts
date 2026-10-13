@@ -1,3 +1,14 @@
+export type RuntimeKind = 'docker' | 'podman'
+
+/** Runtime reportado por el agente, con el error del último ciclo si lo hubo */
+export interface RuntimeStatus {
+  kind: RuntimeKind
+  socket: string
+  version: string | null
+  rootless: boolean
+  error?: string | null
+}
+
 export interface Server {
   id: string
   name: string
@@ -10,6 +21,18 @@ export interface Server {
   is_active: boolean
   status: 'online' | 'offline' | 'unknown'
   last_seen_at: string | null
+  /** Lo monitorea un agente (aunque todavía no se haya inscrito) */
+  uses_agent: boolean
+  /** Tiene una credencial vigente (inscrito y no revocado) */
+  agent_enrolled: boolean
+  enrollment_expires_at: string | null
+  agent_version: string | null
+  agent_protocol_version: number | null
+  hostname: string | null
+  os: string | null
+  arch: string | null
+  runtimes: RuntimeStatus[]
+  last_connected_at: string | null
   created_at: string
   updated_at: string
 }
@@ -27,6 +50,7 @@ export interface CreateServerPayload {
 export interface Container {
   id: string
   server_id: string
+  runtime_kind: RuntimeKind
   short_id: string | null
   name: string | null
   image: string | null
@@ -57,6 +81,10 @@ export interface Mount {
   RW?: boolean
 }
 
+/**
+ * En servidores con agente, net_* (y block_* en contenedores) son tasas en bytes/s.
+ * En el recolector central heredado son contadores acumulados.
+ */
 export interface HostMetrics {
   time: string
   server_id: string
@@ -109,6 +137,10 @@ export interface DockerInfo {
   updated_at: string
 }
 
+export interface RuntimeInfo extends DockerInfo {
+  runtime_kind: RuntimeKind
+}
+
 export interface DiskUsage {
   name: string
   mount_point: string
@@ -122,6 +154,23 @@ export interface DiskUsage {
 export type WsEvent =
   | { type: 'host_metrics'; server_id: string; data: HostMetrics }
   | { type: 'container_metrics'; server_id: string; data: ContainerMetrics[] }
-  | { type: 'containers'; server_id: string; data: Container[] }
-  | { type: 'docker_info'; server_id: string; data: DockerInfo }
+  | { type: 'containers'; server_id: string; data: LiveContainer[] }
+  | { type: 'docker_info'; server_id: string; runtime?: RuntimeKind; data: DockerInfo }
   | { type: 'server_status'; server_id: string; status: string }
+
+/** Contenedor tal como llega por WebSocket (formato del agente) */
+export interface LiveContainer {
+  id: string
+  short_id: string
+  name: string
+  image: string
+  image_id: string
+  status: string
+  state: string
+  created: number
+  command: string | null
+  ports: Port[]
+  labels: Record<string, string>
+  networks: string[]
+  mounts: Mount[]
+}

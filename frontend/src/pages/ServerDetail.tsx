@@ -1,28 +1,48 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { subHours } from 'date-fns'
 import {
-  ArrowLeft, Server, Box, HardDrive, Network, Cpu, MemoryStick,
+  ArrowLeft, Box, HardDrive, Cpu, MemoryStick,
   Activity, RefreshCw,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { AgentPanel } from '@/components/AgentPanel'
 import { ContainerCard } from '@/components/ContainerCard'
 import { MetricsChart } from '@/components/MetricsChart'
+import { RuntimeBadges } from '@/components/RuntimeBadges'
 import { serversApi, containersApi, metricsApi } from '@/lib/api'
+import { agentState, agentStateBadge, agentStateLabel } from '@/lib/agent'
 import {
-  formatBytes, formatPercent, formatUptime, serverStatusColor,
+  formatBytes, formatPercent, formatRate, formatUptime, runtimeLabel, serverStatusColor,
 } from '@/lib/utils'
-import { useRealtimeHostMetrics, useRealtimeDockerInfo } from '@/hooks/useWebSocket'
+import { useRealtimeHostMetrics, useRealtimeRuntimeInfo, sumContainers } from '@/hooks/useWebSocket'
+import type { DockerInfo, RuntimeKind } from '@/types'
 
 export function ServerDetail() {
   const { id } = useParams<{ id: string }>()
+
+  const [runtimeFilter, setRuntimeFilter] = useState<RuntimeKind | 'all'>('all')
 
   const { data: server, refetch: refetchServer } = useQuery({
     queryKey: ['server', id],
     queryFn: () => serversApi.get(id!),
     enabled: !!id,
+    refetchInterval: 15_000,
+  })
+
+  const { data: runtimeRows = [] } = useQuery({
+    queryKey: ['runtimes', id],
+    queryFn: () => metricsApi.runtimes(id!),
+    enabled: !!id,
+    refetchInterval: 60_000,
+  })
+
+  const ping = useMutation({
+    mutationFn: () => serversApi.ping(id!),
+    onSuccess: () => refetchServer(),
   })
 
   const { data: containers = [] } = useQuery({
@@ -48,18 +68,30 @@ export function ServerDetail() {
   })
 
   const liveHost = useRealtimeHostMetrics(id)
-  const liveDocker = useRealtimeDockerInfo(id)
+  const liveRuntimes = useRealtimeRuntimeInfo(id)
 
   if (!server) return <div className="p-6 text-muted-foreground">Cargando…</div>
 
-  const running = containers.filter(c => c.state === 'running')
-  const stopped = containers.filter(c => c.state !== 'running')
+  // Info por runtime: la del WebSocket si ya llegó, si no la última guardada
+  const runtimeInfos: [RuntimeKind, DockerInfo][] = [
+    ...runtimeRows.map(r => [r.runtime_kind, liveRuntimes[r.runtime_kind] ?? r] as [RuntimeKind, DockerInfo]),
+    ...(Object.entries(liveRuntimes) as [RuntimeKind, DockerInfo][])
+      .filter(([k]) => !runtimeRows.some(r => r.runtime_kind === k)),
+  ]
+  const counts = sumContainers(Object.fromEntries(runtimeInfos))
+  const kinds = [...new Set(containers.map(c => c.runtime_kind))]
+  const multiRuntime = kinds.length > 1
+  const visible = containers.filter(c => runtimeFilter === 'all' || c.runtime_kind === runtimeFilter)
+  const running = visible.filter(c => c.state === 'running')
+  const stopped = visible.filter(c => c.state !== 'running')
+  const state = agentState(server)
 
   const timestamps = hostHistory.map(m => m.time)
   const cpuData = hostHistory.map(m => m.cpu_usage_percent ?? 0)
   const memData = hostHistory.map(m => m.memory_usage_percent ?? 0)
-  const netRx = hostHistory.map(m => (m.net_rx_bytes ?? 0) / 1024 / 1024)
-  const netTx = hostHistory.map(m => (m.net_tx_bytes ?? 0) / 1024 / 1024)
+  // Con agente la red llega como tasa (bytes/s); el recolector heredado envía acumulados
+  const netRx = hostHistory.map(m => server.uses_agent ? m.net_rx_bytes ?? 0 : (m.net_rx_bytes ?? 0) / 1024 / 1024)
+  const netTx = hostHistory.map(m => server.uses_agent ? m.net_tx_bytes ?? 0 : (m.net_tx_bytes ?? 0) / 1024 / 1024)
 
   return (
     <div className="p-6 space-y-6">
@@ -70,26 +102,31 @@ export function ServerDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`h-2.5 w-2.5 rounded-full ${serverStatusColor(server.status)}`} />
           <h1 className="text-xl font-bold">{server.name}</h1>
-          <Badge variant="outline">{server.host}</Badge>
-          <Badge variant={server.status === 'online' ? 'success' : 'destructive'}>
-            {server.status}
-          </Badge>
+          <Badge variant="outline">{server.uses_agent ? server.hostname ?? 'sin inscribir' : server.host}</Badge>
+          <Badge variant={agentStateBadge[state]}>{agentStateLabel[state]}</Badge>
+          <RuntimeBadges runtimes={server.runtimes} showVersion />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          onClick={() => serversApi.ping(server.id).then(() => refetchServer())}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1" />
-          Ping
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {ping.data && (
+            <span className="text-xs text-muted-foreground">
+              {ping.data.status === 'online'
+                ? ping.data.latency_ms != null ? `${ping.data.latency_ms} ms` : 'en línea'
+                : ping.data.error ?? 'fuera de línea'}
+            </span>
+          )}
+          <Button variant="outline" size="sm" disabled={ping.isPending} onClick={() => ping.mutate()}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${ping.isPending ? 'animate-spin' : ''}`} />
+            Ping
+          </Button>
+        </div>
       </div>
 
-      {/* Docker info + live stats */}
+      {server.uses_agent && <AgentPanel server={server} />}
+
+      {/* Live stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -125,10 +162,10 @@ export function ServerDetail() {
               <Box className="h-3 w-3 text-cyan-400" /> Contenedores
             </div>
             <div className="text-2xl font-bold text-cyan-400">
-              {liveDocker?.containers_running ?? running.length}
+              {counts?.running ?? containers.filter(c => c.state === 'running').length}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              running / {liveDocker?.containers_total ?? containers.length} total
+              en ejecución / {counts?.total ?? containers.length} total
             </div>
           </CardContent>
         </Card>
@@ -141,8 +178,10 @@ export function ServerDetail() {
             <div className="text-xl font-bold text-green-400">
               {formatUptime(liveHost?.uptime_seconds)}
             </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {liveDocker?.docker_version ? `Docker ${liveDocker.docker_version}` : '—'}
+            <div className="text-xs text-muted-foreground mt-0.5 truncate">
+              {runtimeInfos.length
+                ? runtimeInfos.map(([k, i]) => `${runtimeLabel(k)} ${i.docker_version ?? ''}`).join(' · ')
+                : '—'}
             </div>
           </CardContent>
         </Card>
@@ -170,16 +209,18 @@ export function ServerDetail() {
 
           <Card>
             <CardHeader className="pb-0">
-              <CardTitle className="text-sm">Red (MB acumulado)</CardTitle>
+              <CardTitle className="text-sm">
+                {server.uses_agent ? 'Red (1h)' : 'Red (MB acumulado)'}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <MetricsChart
                 timestamps={timestamps}
                 series={[
-                  { name: 'RX MB', data: netRx, color: '#34d399' },
-                  { name: 'TX MB', data: netTx, color: '#f97316' },
+                  { name: server.uses_agent ? 'Recibido' : 'RX MB', data: netRx, color: '#34d399' },
+                  { name: server.uses_agent ? 'Enviado' : 'TX MB', data: netTx, color: '#f97316' },
                 ]}
-                yFormatter={v => `${v.toFixed(1)} MB`}
+                yFormatter={server.uses_agent ? v => formatRate(v) : v => `${v.toFixed(1)} MB`}
               />
             </CardContent>
           </Card>
@@ -221,26 +262,26 @@ export function ServerDetail() {
         </div>
       )}
 
-      {/* Docker info */}
-      {liveDocker && (
-        <div>
+      {/* Info de cada runtime */}
+      {runtimeInfos.map(([kind, info]) => (
+        <div key={kind}>
           <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider flex items-center gap-1">
-            <Box className="h-3.5 w-3.5" /> Docker
+            <Box className="h-3.5 w-3.5" /> {runtimeLabel(kind)}
           </h2>
           <Card>
             <CardContent className="p-4">
               <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2 text-sm">
                 {[
-                  ['Versión', liveDocker.docker_version],
-                  ['API', liveDocker.api_version],
-                  ['OS', liveDocker.os_type],
-                  ['Arch', liveDocker.arch],
-                  ['Kernel', liveDocker.kernel_version],
-                  ['Storage', liveDocker.storage_driver],
-                  ['Imágenes', liveDocker.images_total],
-                  ['Swarm', liveDocker.swarm_active ? 'activo' : 'inactivo'],
+                  ['Versión', info.docker_version],
+                  ['API', info.api_version],
+                  ['OS', info.os_type],
+                  ['Arch', info.arch],
+                  ['Kernel', info.kernel_version],
+                  ['Storage', info.storage_driver],
+                  ['Imágenes', info.images_total],
+                  ...(kind === 'docker' ? [['Swarm', info.swarm_active ? 'activo' : 'inactivo']] : []),
                 ].map(([k, v]) => (
-                  <div key={k}>
+                  <div key={String(k)}>
                     <dt className="text-muted-foreground text-xs">{k}</dt>
                     <dd className="font-medium truncate">{v ?? '—'}</dd>
                   </div>
@@ -249,19 +290,36 @@ export function ServerDetail() {
             </CardContent>
           </Card>
         </div>
-      )}
+      ))}
 
       {/* Containers */}
       <div>
-        <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider flex items-center gap-1">
-          <Box className="h-3.5 w-3.5" /> Contenedores ({containers.length})
-        </h2>
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+            <Box className="h-3.5 w-3.5" /> Contenedores ({visible.length})
+          </h2>
+          {multiRuntime && (
+            <div className="flex gap-1">
+              {(['all', ...kinds] as const).map(k => (
+                <Button
+                  key={k}
+                  size="sm"
+                  variant={runtimeFilter === k ? 'default' : 'outline'}
+                  onClick={() => setRuntimeFilter(k)}
+                >
+                  {k === 'all' ? 'Todos' : runtimeLabel(k)}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
         {running.length > 0 && (
           <>
             <div className="text-xs text-green-400 mb-2">En ejecución ({running.length})</div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
               {running.map(c => (
-                <ContainerCard key={c.id} container={c} serverId={server.id} />
+                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id}
+                  showRuntime={multiRuntime} ratesPerSecond={server.uses_agent} />
               ))}
             </div>
           </>
@@ -271,12 +329,13 @@ export function ServerDetail() {
             <div className="text-xs text-muted-foreground mb-2">Detenidos ({stopped.length})</div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {stopped.map(c => (
-                <ContainerCard key={c.id} container={c} serverId={server.id} />
+                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id}
+                  showRuntime={multiRuntime} ratesPerSecond={server.uses_agent} />
               ))}
             </div>
           </>
         )}
-        {containers.length === 0 && (
+        {visible.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
             <Box className="h-8 w-8 mx-auto mb-2 opacity-30" />
             <p className="text-sm">No se encontraron contenedores.</p>

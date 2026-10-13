@@ -56,10 +56,13 @@ pub async fn create_server(
     let port = payload.port.unwrap_or(2375);
     let tls = payload.tls_enabled.unwrap_or(false);
     let tags = serde_json::to_value(payload.tags.unwrap_or_default())?;
+    // Sin connection_type explícito, el servidor lo monitorea un agente. Así el recolector
+    // central nunca lo toma (mostraría los contenedores de esta máquina con otro nombre).
+    let uses_agent = payload.connection_type.is_none();
 
     let server = sqlx::query_as::<_, Server>(
-        r#"INSERT INTO servers (name, host, connection_type, docker_host, port, tls_enabled, tags, netdata_url)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        r#"INSERT INTO servers (name, host, connection_type, docker_host, port, tls_enabled, tags, netdata_url, uses_agent)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING *"#,
     )
     .bind(&payload.name)
@@ -70,6 +73,7 @@ pub async fn create_server(
     .bind(tls)
     .bind(tags)
     .bind(&payload.netdata_url)
+    .bind(uses_agent)
     .fetch_one(&state.db)
     .await?;
 

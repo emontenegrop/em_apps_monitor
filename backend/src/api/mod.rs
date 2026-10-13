@@ -47,6 +47,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/servers/:id/metrics/host", get(metrics::host_metrics))
         .route("/servers/:id/metrics/docker", get(metrics::docker_info))
         .route("/servers/:id/metrics/disks", get(metrics::disk_usage))
+        .route("/servers/:id/runtimes", get(metrics::runtimes))
         .route("/servers/:id/containers/:cid/metrics", get(metrics::container_metrics))
         .route_layer(middleware::from_fn_with_state(state, auth::require_session));
 

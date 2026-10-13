@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { ws } from '@/lib/websocket'
 import type {
-  Container,
   ContainerMetrics,
   DockerInfo,
   HostMetrics,
+  LiveContainer,
+  RuntimeKind,
   WsEvent,
 } from '@/types'
 
@@ -42,7 +43,7 @@ export function useRealtimeHostMetrics(serverId: string | undefined) {
 
 /** Subscribe to real-time container list for a specific server */
 export function useRealtimeContainers(serverId: string | undefined) {
-  const [containers, setContainers] = useState<Container[]>([])
+  const [containers, setContainers] = useState<LiveContainer[]>([])
 
   useEffect(() => {
     if (!serverId) return
@@ -93,6 +94,38 @@ export function useRealtimeDockerInfo(serverId: string | undefined) {
   }, [serverId])
 
   return info
+}
+
+/**
+ * Info en vivo de cada runtime del servidor. Un host puede tener Docker y Podman:
+ * los eventos se guardan por runtime para que uno no pise al otro.
+ */
+export function useRealtimeRuntimeInfo(serverId: string | undefined) {
+  const [infos, setInfos] = useState<Partial<Record<RuntimeKind, DockerInfo>>>({})
+
+  useEffect(() => {
+    if (!serverId) return
+    setInfos({})
+    ws.connect()
+    return ws.subscribe((event) => {
+      if (event.type === 'docker_info' && event.server_id === serverId) {
+        const kind = event.runtime ?? 'docker'
+        setInfos(prev => ({ ...prev, [kind]: event.data }))
+      }
+    })
+  }, [serverId])
+
+  return infos
+}
+
+/** Suma de contenedores (en ejecución / total) de todos los runtimes */
+export function sumContainers(infos: Partial<Record<RuntimeKind, DockerInfo>>) {
+  const list = Object.values(infos)
+  if (list.length === 0) return null
+  return {
+    running: list.reduce((n, i) => n + (i?.containers_running ?? 0), 0),
+    total: list.reduce((n, i) => n + (i?.containers_total ?? 0), 0),
+  }
 }
 
 /** Rolling history buffer for charting (keeps last N samples) */

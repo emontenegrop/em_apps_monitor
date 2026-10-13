@@ -6,16 +6,30 @@ import type {
   DiskUsage,
   DockerInfo,
   HostMetrics,
+  RuntimeInfo,
+  RuntimeKind,
   Server,
 } from '@/types'
 
 const http = axios.create({ baseURL: '/api' })
 
+let loggingOut = false
+
+/** Al cerrar sesión, los 401 de consultas en curso no deben redirigir con `?next=` */
+export function markLoggingOut() {
+  loggingOut = true
+}
+
 // Sesión vencida o cerrada en otra pestaña: volver al login conservando la ruta actual
 http.interceptors.response.use(
   r => r,
   err => {
-    if (axios.isAxiosError(err) && err.response?.status === 401 && window.location.pathname !== '/login') {
+    if (
+      !loggingOut &&
+      axios.isAxiosError(err) &&
+      err.response?.status === 401 &&
+      window.location.pathname !== '/login'
+    ) {
       const next = encodeURIComponent(window.location.pathname + window.location.search)
       window.location.assign(`/login?next=${next}`)
     }
@@ -64,14 +78,16 @@ export const containersApi = {
         params: revealEnv ? { reveal_env: true } : undefined,
       })
       .then(r => r.data),
-  logs: (serverId: string, containerId: string) =>
-    http.get<string[]>(`/servers/${serverId}/containers/${containerId}/logs`).then(r => r.data),
-  images: (serverId: string) =>
-    http.get(`/servers/${serverId}/images`).then(r => r.data),
-  networks: (serverId: string) =>
-    http.get(`/servers/${serverId}/networks`).then(r => r.data),
-  volumes: (serverId: string) =>
-    http.get(`/servers/${serverId}/volumes`).then(r => r.data),
+  logs: (serverId: string, containerId: string, tail = 200) =>
+    http
+      .get<string[]>(`/servers/${serverId}/containers/${containerId}/logs`, { params: { tail } })
+      .then(r => r.data),
+  images: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/images`, { params: { runtime } }).then(r => r.data),
+  networks: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/networks`, { params: { runtime } }).then(r => r.data),
+  volumes: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/volumes`, { params: { runtime } }).then(r => r.data),
 }
 
 // ── Metrics ────────────────────────────────────────────────────────────────
@@ -90,4 +106,6 @@ export const metricsApi = {
     http.get<DockerInfo | null>(`/servers/${serverId}/metrics/docker`).then(r => r.data),
   disks: (serverId: string) =>
     http.get<DiskUsage[]>(`/servers/${serverId}/metrics/disks`).then(r => r.data),
+  runtimes: (serverId: string) =>
+    http.get<RuntimeInfo[]>(`/servers/${serverId}/runtimes`).then(r => r.data),
 }
