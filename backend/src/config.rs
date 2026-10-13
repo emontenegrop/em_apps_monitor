@@ -5,9 +5,7 @@ pub struct Config {
     pub database_url: String,
     pub server_addr: String,
     pub collection_interval_secs: u64,
-    pub _metrics_retention_days: i32,
-    /// Recolector central vía bollard para servidores sin agente (transición; se retira en la fase 7)
-    pub legacy_collector: bool,
+    pub metrics_retention_days: i32,
     /// Administrador inicial (solo se usa si no hay usuarios)
     pub admin_username: Option<String>,
     pub admin_password: Option<String>,
@@ -30,13 +28,11 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(15),
-            _metrics_retention_days: std::env::var("METRICS_RETENTION_DAYS")
+            metrics_retention_days: std::env::var("METRICS_RETENTION_DAYS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(7),
-            legacy_collector: std::env::var("LEGACY_COLLECTOR")
-                .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-                .unwrap_or(true),
+                .unwrap_or(7)
+                .max(1),
             admin_username: std::env::var("ADMIN_USERNAME").ok().filter(|v| !v.is_empty()),
             admin_password: std::env::var("ADMIN_PASSWORD").ok().filter(|v| !v.is_empty()),
             cookie_secure: std::env::var("COOKIE_SECURE")

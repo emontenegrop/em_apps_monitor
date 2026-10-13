@@ -12,17 +12,10 @@ export interface RuntimeStatus {
 export interface Server {
   id: string
   name: string
-  host: string
-  connection_type: 'local' | 'tcp' | 'ssh'
-  docker_host: string | null
-  port: number
-  tls_enabled: boolean
   tags: string[]
   is_active: boolean
   status: 'online' | 'offline' | 'unknown'
   last_seen_at: string | null
-  /** Lo monitorea un agente (aunque todavía no se haya inscrito) */
-  uses_agent: boolean
   /** Tiene una credencial vigente (inscrito y no revocado) */
   agent_enrolled: boolean
   enrollment_expires_at: string | null
@@ -39,11 +32,6 @@ export interface Server {
 
 export interface CreateServerPayload {
   name: string
-  host?: string
-  connection_type?: 'local' | 'tcp' | 'ssh'
-  docker_host?: string
-  port?: number
-  tls_enabled?: boolean
   tags?: string[]
 }
 
@@ -81,10 +69,7 @@ export interface Mount {
   RW?: boolean
 }
 
-/**
- * En servidores con agente, net_* (y block_* en contenedores) son tasas en bytes/s.
- * En el recolector central heredado son contadores acumulados.
- */
+/** net_* (y block_* en contenedores) son tasas en bytes/s */
 export interface HostMetrics {
   time: string
   server_id: string
@@ -155,7 +140,7 @@ export type WsEvent =
   | { type: 'host_metrics'; server_id: string; data: HostMetrics }
   | { type: 'container_metrics'; server_id: string; data: ContainerMetrics[] }
   | { type: 'containers'; server_id: string; data: LiveContainer[] }
-  | { type: 'docker_info'; server_id: string; runtime?: RuntimeKind; data: DockerInfo }
+  | { type: 'docker_info'; server_id: string; runtime: RuntimeKind; data: DockerInfo }
   | { type: 'server_status'; server_id: string; status: string }
 
 /** Contenedor tal como llega por WebSocket (formato del agente) */

@@ -6,7 +6,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod agents;
 mod api;
 mod auth;
-mod collectors;
 mod config;
 mod db;
 mod error;
@@ -48,11 +47,11 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(state::AppState::new(pool, &cfg, agent_ca));
 
     tracing::info!(
-        "Starting collector (interval = {}s, legacy = {})…",
+        "Tareas de fondo: intervalo de agentes {}s, retención {} días",
         cfg.collection_interval_secs,
-        cfg.legacy_collector
+        cfg.metrics_retention_days
     );
-    scheduler::start_collectors(state.clone(), cfg.collection_interval_secs, cfg.legacy_collector).await;
+    scheduler::start_background_tasks(state.clone(), cfg.collection_interval_secs, cfg.metrics_retention_days).await;
 
     // Sin CORS: la UI se sirve desde el mismo origen (nginx) y la sesión va en cookie SameSite=Strict
     let app = axum::Router::new()

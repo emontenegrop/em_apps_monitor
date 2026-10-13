@@ -61,8 +61,11 @@ Después del primer ingreso cambia la contraseña en **Mi cuenta** y borra `ADMI
 | `PUBLIC_URL` | `https://172.16.27.31:8443` | URL de los comandos de instalación |
 | `AGENT_CA_FILE` | `/etc/em-monitor/ca.crt` | CA que se entrega a los agentes |
 | `COLLECTION_INTERVAL_SECS` | `15` | Intervalo que se indica a los agentes |
+| `METRICS_RETENTION_DAYS` | `7` | Días de historial de métricas que se conservan |
 | `COOKIE_SECURE` | `true` | Cookie de sesión solo por HTTPS |
-| `LEGACY_COLLECTOR` | `true` | Recolector central heredado (servidores sin agente) |
+
+El backend no accede a Docker ni a Podman: todos los datos llegan de los agentes, así que no
+monta el socket del host.
 
 ## Agregar un servidor
 
@@ -113,6 +116,19 @@ docker compose --profile agent up -d agent
 ```
 
 En modo contenedor las métricas de red son las del contenedor salvo que se use `--network host`.
+
+## Actualizar desde una versión con recolector central
+
+Las versiones anteriores consultaban Docker directamente desde el backend (servidor "Local" y
+conexiones TCP). Al actualizar, la migración:
+
+- conserva esos servidores y su historial, pero quedan **esperando agente**;
+- vacía en su historial los valores de red y disco, que eran contadores acumulados (los agentes
+  envían tasas en bytes/s); CPU, memoria y el resto se conservan;
+- elimina la configuración de conexión directa y de Netdata.
+
+Para el host del propio central, inscribe el servicio `agent` del compose (ver arriba) con una
+ficha generada desde el detalle del servidor "Local".
 
 ## Operación
 

@@ -113,7 +113,7 @@ pub async fn create_enrollment_token(
 ) -> ApiResult<Json<EnrollmentToken>> {
     let token = generate_secret();
     let expires_at: Option<DateTime<Utc>> = sqlx::query_scalar(
-        r#"UPDATE servers SET uses_agent = true, enrollment_token_hash = $2,
+        r#"UPDATE servers SET enrollment_token_hash = $2,
              enrollment_expires_at = NOW() + make_interval(mins => $3), updated_at = NOW()
            WHERE id = $1 RETURNING enrollment_expires_at"#,
     )
@@ -123,8 +123,6 @@ pub async fn create_enrollment_token(
     .fetch_optional(&state.db)
     .await?;
     let expires_at = expires_at.ok_or_else(|| AppError::NotFound(format!("Server {id} not found")))?;
-    // Ahora lo monitorea un agente: se descarta el cliente del recolector central
-    state.docker_clients.write().await.remove(&id);
 
     let server_url = public_url(&state, &headers);
     let ca_fingerprint = state.agent_ca.as_ref().map(|ca| ca.fingerprint.clone());
@@ -158,13 +156,13 @@ pub async fn revoke_agent(
     let res = sqlx::query(
         r#"UPDATE servers SET agent_secret_hash = NULL, enrollment_token_hash = NULL,
              enrollment_expires_at = NULL, status = 'offline', updated_at = NOW()
-           WHERE id = $1 AND uses_agent"#,
+           WHERE id = $1"#,
     )
     .bind(id)
     .execute(&state.db)
     .await?;
     if res.rows_affected() == 0 {
-        return Err(AppError::NotFound(format!("Server {id} not found or not monitored by an agent")));
+        return Err(AppError::NotFound(format!("Server {id} not found")));
     }
     state.agents.disconnect(id, CLOSE_REVOKED, "credencial revocada").await;
     broadcast(&state, &WsEvent::ServerStatus { server_id: id, status: "offline".into() });
@@ -200,7 +198,7 @@ pub async fn enroll(
     let secret = generate_secret();
     let server_id: Option<Uuid> = sqlx::query_scalar(
         r#"UPDATE servers SET agent_secret_hash = $2, enrollment_token_hash = NULL,
-             enrollment_expires_at = NULL, uses_agent = true, updated_at = NOW()
+             enrollment_expires_at = NULL, updated_at = NOW()
            WHERE enrollment_token_hash = $1 AND enrollment_expires_at > NOW()
            RETURNING id"#,
     )

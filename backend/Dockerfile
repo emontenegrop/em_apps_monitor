@@ -4,8 +4,6 @@
 # ── Build stage ───────────────────────────────────────────────────────────
 FROM rust:slim AS builder
 
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 # 1. Copy workspace manifests + frozen lockfile for reproducible dep resolution
@@ -33,7 +31,7 @@ RUN touch backend/src/main.rs crates/protocol/src/lib.rs && cargo build --releas
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/em_monitor /usr/local/bin/em_monitor
 # Migrations are embedded at compile time by sqlx::migrate!() — no runtime files needed

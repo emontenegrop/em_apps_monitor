@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use crate::{
     auth::CurrentUser,
-    collectors::docker::{list_images, list_networks, list_volumes},
     error::{ApiResult, AppError},
     models::container::Container,
     state::AppState,
@@ -97,19 +96,9 @@ pub async fn inspect_container(
         tracing::warn!("'{}' pidió las variables de entorno de {container_id} en {server_id}", user.username);
     }
 
-    if has_agent(&state, server_id).await? {
-        let runtime = container_runtime(&state, server_id, &container_id).await?;
-        let method = RequestMethod::Inspect { runtime, container_id, reveal_env: q.reveal_env };
-        return Ok(Json(state.agents.request(server_id, method, AGENT_TIMEOUT).await?));
-    }
-
-    let docker = get_docker_client(&state, server_id).await?;
-    let details = docker.inspect_container(&container_id, None).await?;
-    let mut value = serde_json::to_value(details)?;
-    if !q.reveal_env {
-        em_protocol::redact::redact_inspect_env(&mut value);
-    }
-    Ok(Json(value))
+    let runtime = container_runtime(&state, server_id, &container_id).await?;
+    let method = RequestMethod::Inspect { runtime, container_id, reveal_env: q.reveal_env };
+    Ok(Json(state.agents.request(server_id, method, AGENT_TIMEOUT).await?))
 }
 
 pub async fn container_logs(
@@ -119,39 +108,13 @@ pub async fn container_logs(
 ) -> ApiResult<Json<Vec<String>>> {
     let tail = q.tail.unwrap_or(200).clamp(1, MAX_LOG_TAIL);
 
-    if has_agent(&state, server_id).await? {
-        let runtime = container_runtime(&state, server_id, &container_id).await?;
-        let value = state
-            .agents
-            .request(server_id, RequestMethod::Logs { runtime, container_id, tail }, AGENT_TIMEOUT)
-            .await?;
-        let lines: Vec<String> = serde_json::from_value(value)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("logs del agente con formato inválido: {e}")))?;
-        return Ok(Json(lines));
-    }
-
-    use bollard::container::LogsOptions;
-    use futures_util::StreamExt;
-
-    let docker = get_docker_client(&state, server_id).await?;
-    let mut stream = docker.logs(
-        &container_id,
-        Some(LogsOptions::<String> {
-            stdout: true,
-            stderr: true,
-            tail: tail.to_string(),
-            timestamps: true,
-            ..Default::default()
-        }),
-    );
-
-    let mut lines = Vec::new();
-    while let Some(msg) = stream.next().await {
-        match msg {
-            Ok(output) => lines.push(output.to_string()),
-            Err(_) => break,
-        }
-    }
+    let runtime = container_runtime(&state, server_id, &container_id).await?;
+    let value = state
+        .agents
+        .request(server_id, RequestMethod::Logs { runtime, container_id, tail }, AGENT_TIMEOUT)
+        .await?;
+    let lines: Vec<String> = serde_json::from_value(value)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("logs del agente con formato inválido: {e}")))?;
     Ok(Json(lines))
 }
 
@@ -160,14 +123,8 @@ pub async fn server_images(
     Path(server_id): Path<Uuid>,
     Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    if has_agent(&state, server_id).await? {
-        let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
-        return Ok(Json(
-            state.agents.request(server_id, RequestMethod::Images { runtime }, AGENT_TIMEOUT).await?,
-        ));
-    }
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_images(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Images { runtime }, AGENT_TIMEOUT).await?))
 }
 
 pub async fn server_networks(
@@ -175,14 +132,8 @@ pub async fn server_networks(
     Path(server_id): Path<Uuid>,
     Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    if has_agent(&state, server_id).await? {
-        let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
-        return Ok(Json(
-            state.agents.request(server_id, RequestMethod::Networks { runtime }, AGENT_TIMEOUT).await?,
-        ));
-    }
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_networks(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Networks { runtime }, AGENT_TIMEOUT).await?))
 }
 
 pub async fn server_volumes(
@@ -190,25 +141,23 @@ pub async fn server_volumes(
     Path(server_id): Path<Uuid>,
     Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    if has_agent(&state, server_id).await? {
-        let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
-        return Ok(Json(
-            state.agents.request(server_id, RequestMethod::Volumes { runtime }, AGENT_TIMEOUT).await?,
-        ));
-    }
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_volumes(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Volumes { runtime }, AGENT_TIMEOUT).await?))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-/// ¿El servidor lo monitorea un agente? (si no, se usa el recolector central)
-async fn has_agent(state: &Arc<AppState>, server_id: Uuid) -> ApiResult<bool> {
-    sqlx::query_scalar::<_, bool>("SELECT uses_agent FROM servers WHERE id = $1")
+/// 404 si el servidor no existe
+async fn ensure_server(state: &Arc<AppState>, server_id: Uuid) -> ApiResult<()> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM servers WHERE id = $1)")
         .bind(server_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Server {server_id} not found")))
+        .fetch_one(&state.db)
+        .await?;
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(format!("Server {server_id} not found")))
+    }
 }
 
 fn parse_runtime(name: &str) -> Option<RuntimeKind> {
@@ -222,6 +171,7 @@ fn parse_runtime(name: &str) -> Option<RuntimeKind> {
 /// Runtime de un contenedor según el último listado. Acepta id, id corto o nombre,
 /// igual que la API de Docker.
 async fn container_runtime(state: &Arc<AppState>, server_id: Uuid, container: &str) -> ApiResult<RuntimeKind> {
+    ensure_server(state, server_id).await?;
     let kind: Option<String> = sqlx::query_scalar(
         r#"SELECT runtime_kind FROM containers
            WHERE server_id = $1 AND (id = $2 OR short_id = $2 OR name = $2)
@@ -240,6 +190,7 @@ async fn container_runtime(state: &Arc<AppState>, server_id: Uuid, container: &s
 
 /// Runtime pedido por query, o el primero que reportó el agente
 async fn requested_runtime(state: &Arc<AppState>, server_id: Uuid, name: Option<&str>) -> ApiResult<RuntimeKind> {
+    ensure_server(state, server_id).await?;
     if let Some(name) = name {
         return parse_runtime(name)
             .ok_or_else(|| AppError::BadRequest(format!("runtime desconocido: {name} (docker | podman)")));
@@ -254,21 +205,4 @@ async fn requested_runtime(state: &Arc<AppState>, server_id: Uuid, name: Option<
         .as_deref()
         .and_then(parse_runtime)
         .ok_or_else(|| AppError::BadRequest("el agente no reportó ningún runtime".into()))
-}
-
-async fn get_docker_client(
-    state: &Arc<AppState>,
-    server_id: Uuid,
-) -> ApiResult<std::sync::Arc<bollard::Docker>> {
-    state
-        .docker_clients
-        .read()
-        .await
-        .get(&server_id)
-        .cloned()
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "No active Docker connection for server {server_id}. Try pinging the server first."
-            ))
-        })
 }

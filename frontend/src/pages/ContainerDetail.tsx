@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EnvPanel } from '@/components/EnvPanel'
 import { MetricsChart } from '@/components/MetricsChart'
-import { containersApi, metricsApi, serversApi } from '@/lib/api'
+import { containersApi, metricsApi } from '@/lib/api'
 import { formatBytes, formatPercent, formatRate, containerStateColor, runtimeLabel } from '@/lib/utils'
 import { useRealtimeContainerMetrics } from '@/hooks/useWebSocket'
 
@@ -16,14 +16,6 @@ export function ContainerDetail() {
   const { id: serverId, cid } = useParams<{ id: string; cid: string }>()
   const [tail, setTail] = useState(200)
 
-  const { data: server } = useQuery({
-    queryKey: ['server', serverId],
-    queryFn: () => serversApi.get(serverId!),
-    enabled: !!serverId,
-  })
-  // Con agente, red y disco llegan como tasas (bytes/s); el recolector heredado envía acumulados
-  const rates = !!server?.uses_agent
-  const fmt = rates ? formatRate : formatBytes
 
   const { data: container } = useQuery({
     queryKey: ['container', serverId, cid],
@@ -53,12 +45,12 @@ export function ContainerDetail() {
   const timestamps = history.map(m => m.time)
   const cpuData = history.map(m => m.cpu_usage_percent ?? 0)
   const memData = history.map(m => m.memory_usage_percent ?? 0)
-  const scale = (v: number | null) => (rates ? v ?? 0 : (v ?? 0) / 1024 / 1024)
-  const netRx = history.map(m => scale(m.net_rx_bytes))
-  const netTx = history.map(m => scale(m.net_tx_bytes))
-  const blkR = history.map(m => scale(m.block_read_bytes))
-  const blkW = history.map(m => scale(m.block_write_bytes))
-  const chartFmt = rates ? (v: number) => formatRate(v) : (v: number) => `${v.toFixed(1)} MB`
+  // Red y disco son tasas en bytes/s
+  const netRx = history.map(m => m.net_rx_bytes ?? 0)
+  const netTx = history.map(m => m.net_tx_bytes ?? 0)
+  const blkR = history.map(m => m.block_read_bytes ?? 0)
+  const blkW = history.map(m => m.block_write_bytes ?? 0)
+  const chartFmt = (v: number) => formatRate(v)
 
   const stateClass = containerStateColor(container.state)
 
@@ -82,7 +74,7 @@ export function ContainerDetail() {
         >
           {container.state}
         </Badge>
-        {server?.uses_agent && <Badge variant="outline">{runtimeLabel(container.runtime_kind)}</Badge>}
+        <Badge variant="outline">{runtimeLabel(container.runtime_kind)}</Badge>
       </div>
 
       {/* Live metrics */}
@@ -118,10 +110,10 @@ export function ContainerDetail() {
               <Network className="h-3 w-3 text-cyan-400" /> Red
             </div>
             <div className="text-sm font-bold text-cyan-400">
-              ↓ {fmt(live?.net_rx_bytes)}
+              ↓ {formatRate(live?.net_rx_bytes)}
             </div>
             <div className="text-sm font-bold text-orange-400">
-              ↑ {fmt(live?.net_tx_bytes)}
+              ↑ {formatRate(live?.net_tx_bytes)}
             </div>
           </CardContent>
         </Card>
@@ -132,10 +124,10 @@ export function ContainerDetail() {
               <HardDrive className="h-3 w-3 text-green-400" /> I/O Disco
             </div>
             <div className="text-sm font-bold text-green-400">
-              R: {fmt(live?.block_read_bytes)}
+              R: {formatRate(live?.block_read_bytes)}
             </div>
             <div className="text-sm font-bold text-yellow-400">
-              W: {fmt(live?.block_write_bytes)}
+              W: {formatRate(live?.block_write_bytes)}
             </div>
           </CardContent>
         </Card>
@@ -163,14 +155,14 @@ export function ContainerDetail() {
 
           <Card>
             <CardHeader className="pb-0">
-              <CardTitle className="text-sm">{rates ? 'Red (1h)' : 'Red MB (acumulado)'}</CardTitle>
+              <CardTitle className="text-sm">Red (1h)</CardTitle>
             </CardHeader>
             <CardContent>
               <MetricsChart
                 timestamps={timestamps}
                 series={[
-                  { name: rates ? 'Recibido' : 'RX', data: netRx, color: '#34d399' },
-                  { name: rates ? 'Enviado' : 'TX', data: netTx, color: '#f97316' },
+                  { name: 'Recibido', data: netRx, color: '#34d399' },
+                  { name: 'Enviado', data: netTx, color: '#f97316' },
                 ]}
                 yFormatter={chartFmt}
               />
@@ -179,14 +171,14 @@ export function ContainerDetail() {
 
           <Card>
             <CardHeader className="pb-0">
-              <CardTitle className="text-sm">{rates ? 'I/O Disco (1h)' : 'I/O Disco MB'}</CardTitle>
+              <CardTitle className="text-sm">I/O Disco (1h)</CardTitle>
             </CardHeader>
             <CardContent>
               <MetricsChart
                 timestamps={timestamps}
                 series={[
-                  { name: rates ? 'Lectura' : 'Read', data: blkR, color: '#4ade80' },
-                  { name: rates ? 'Escritura' : 'Write', data: blkW, color: '#facc15' },
+                  { name: 'Lectura', data: blkR, color: '#4ade80' },
+                  { name: 'Escritura', data: blkW, color: '#facc15' },
                 ]}
                 yFormatter={chartFmt}
               />

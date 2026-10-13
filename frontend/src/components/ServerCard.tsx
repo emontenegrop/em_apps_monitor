@@ -34,9 +34,7 @@ export function ServerCard({ server }: ServerCardProps) {
   })
 
   const statusDot = serverStatusColor(server.status)
-  const location = server.uses_agent
-    ? server.hostname ?? 'sin inscribir'
-    : server.connection_type === 'local' ? 'Local' : server.host
+  const location = server.hostname ?? 'sin inscribir'
 
   return (
     <Card

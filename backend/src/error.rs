@@ -10,9 +10,6 @@ pub enum AppError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("Docker error: {0}")]
-    Docker(#[from] bollard::errors::Error),
-
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -37,10 +34,6 @@ impl IntoResponse for AppError {
             AppError::Database(e) => {
                 tracing::error!("DB error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
-            }
-            AppError::Docker(e) => {
-                tracing::error!("Docker error: {e}");
-                (StatusCode::BAD_GATEWAY, format!("Docker error: {e}"))
             }
             AppError::Json(e) => {
                 tracing::error!("JSON error: {e}");

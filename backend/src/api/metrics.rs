@@ -8,7 +8,6 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    collectors::host::collect_disk_usage,
     error::ApiResult,
     models::metrics::{ContainerMetrics, DockerInfo, DiskUsage, HostMetrics, RuntimeInfo},
     state::AppState,
@@ -118,17 +117,6 @@ pub async fn disk_usage(
     State(state): State<Arc<AppState>>,
     Path(server_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<DiskUsage>>> {
-    let has_agent: Option<bool> =
-        sqlx::query_scalar("SELECT uses_agent FROM servers WHERE id = $1")
-            .bind(server_id)
-            .fetch_optional(&state.db)
-            .await?;
-
-    if has_agent != Some(true) {
-        // Sin agente: solo se pueden medir los discos de la máquina local
-        return Ok(Json(collect_disk_usage()));
-    }
-
     let rows: Vec<(String, String, String, i64, i64, i64, f64)> = sqlx::query_as(
         r#"SELECT name, mount_point, fs_type, total_bytes, used_bytes, available_bytes, usage_percent
            FROM disk_usage_latest WHERE server_id = $1 ORDER BY mount_point"#,

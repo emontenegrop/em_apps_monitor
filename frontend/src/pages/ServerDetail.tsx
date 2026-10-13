@@ -89,9 +89,9 @@ export function ServerDetail() {
   const timestamps = hostHistory.map(m => m.time)
   const cpuData = hostHistory.map(m => m.cpu_usage_percent ?? 0)
   const memData = hostHistory.map(m => m.memory_usage_percent ?? 0)
-  // Con agente la red llega como tasa (bytes/s); el recolector heredado envía acumulados
-  const netRx = hostHistory.map(m => server.uses_agent ? m.net_rx_bytes ?? 0 : (m.net_rx_bytes ?? 0) / 1024 / 1024)
-  const netTx = hostHistory.map(m => server.uses_agent ? m.net_tx_bytes ?? 0 : (m.net_tx_bytes ?? 0) / 1024 / 1024)
+  // La red llega como tasa (bytes/s)
+  const netRx = hostHistory.map(m => m.net_rx_bytes ?? 0)
+  const netTx = hostHistory.map(m => m.net_tx_bytes ?? 0)
 
   return (
     <div className="p-6 space-y-6">
@@ -105,7 +105,7 @@ export function ServerDetail() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`h-2.5 w-2.5 rounded-full ${serverStatusColor(server.status)}`} />
           <h1 className="text-xl font-bold">{server.name}</h1>
-          <Badge variant="outline">{server.uses_agent ? server.hostname ?? 'sin inscribir' : server.host}</Badge>
+          <Badge variant="outline">{server.hostname ?? 'sin inscribir'}</Badge>
           <Badge variant={agentStateBadge[state]}>{agentStateLabel[state]}</Badge>
           <RuntimeBadges runtimes={server.runtimes} showVersion />
         </div>
@@ -124,7 +124,7 @@ export function ServerDetail() {
         </div>
       </div>
 
-      {server.uses_agent && <AgentPanel server={server} />}
+      <AgentPanel server={server} />
 
       {/* Live stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -210,17 +210,17 @@ export function ServerDetail() {
           <Card>
             <CardHeader className="pb-0">
               <CardTitle className="text-sm">
-                {server.uses_agent ? 'Red (1h)' : 'Red (MB acumulado)'}
+                Red (1h)
               </CardTitle>
             </CardHeader>
             <CardContent>
               <MetricsChart
                 timestamps={timestamps}
                 series={[
-                  { name: server.uses_agent ? 'Recibido' : 'RX MB', data: netRx, color: '#34d399' },
-                  { name: server.uses_agent ? 'Enviado' : 'TX MB', data: netTx, color: '#f97316' },
+                  { name: 'Recibido', data: netRx, color: '#34d399' },
+                  { name: 'Enviado', data: netTx, color: '#f97316' },
                 ]}
-                yFormatter={server.uses_agent ? v => formatRate(v) : v => `${v.toFixed(1)} MB`}
+                yFormatter={v => formatRate(v)}
               />
             </CardContent>
           </Card>
@@ -318,8 +318,7 @@ export function ServerDetail() {
             <div className="text-xs text-green-400 mb-2">En ejecución ({running.length})</div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
               {running.map(c => (
-                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id}
-                  showRuntime={multiRuntime} ratesPerSecond={server.uses_agent} />
+                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id} showRuntime={multiRuntime} />
               ))}
             </div>
           </>
@@ -329,8 +328,7 @@ export function ServerDetail() {
             <div className="text-xs text-muted-foreground mb-2">Detenidos ({stopped.length})</div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {stopped.map(c => (
-                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id}
-                  showRuntime={multiRuntime} ratesPerSecond={server.uses_agent} />
+                <ContainerCard key={`${c.runtime_kind}-${c.id}`} container={c} serverId={server.id} showRuntime={multiRuntime} />
               ))}
             </div>
           </>

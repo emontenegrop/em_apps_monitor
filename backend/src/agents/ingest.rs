@@ -107,7 +107,7 @@ impl SessionIngest {
             broadcast(state, &WsEvent::HostMetrics { server_id: sid, data: snap.host });
             for rt in snap.runtimes {
                 if let Some(info) = rt.info {
-                    let runtime = Some(runtime_name(rt.kind).to_string());
+                    let runtime = runtime_name(rt.kind).to_string();
                     broadcast(state, &WsEvent::DockerInfo { server_id: sid, runtime, data: info });
                 }
             }

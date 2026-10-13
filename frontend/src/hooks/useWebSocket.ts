@@ -109,8 +109,7 @@ export function useRealtimeRuntimeInfo(serverId: string | undefined) {
     ws.connect()
     return ws.subscribe((event) => {
       if (event.type === 'docker_info' && event.server_id === serverId) {
-        const kind = event.runtime ?? 'docker'
-        setInfos(prev => ({ ...prev, [kind]: event.data }))
+        setInfos(prev => ({ ...prev, [event.runtime]: event.data }))
       }
     })
   }, [serverId])

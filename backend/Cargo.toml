@@ -17,16 +17,11 @@ uuid           = { version = "1",   features = ["v4", "serde"] }
 chrono         = { version = "0.4", features = ["serde"] }
 tracing        = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-bollard        = "0.16"
-sysinfo        = "0.30"
 futures-util   = "0.3"
-tower          = "0.4"
-tower-http     = { version = "0.5", features = ["cors", "trace"] }
+tower-http     = { version = "0.5", features = ["trace"] }
 dotenvy        = "0.15"
 thiserror      = "1"
 anyhow         = "1"
-tokio-stream   = "0.1"
-reqwest        = { version = "0.12", features = ["json"] }
 rand           = "0.8"
 sha2           = "0.10"
 hex            = "0.4"

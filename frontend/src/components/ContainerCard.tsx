@@ -11,11 +11,9 @@ interface ContainerCardProps {
   serverId: string
   /** Mostrar el runtime (cuando el host tiene Docker y Podman) */
   showRuntime?: boolean
-  /** La red llega como tasa en bytes/s (servidores con agente) */
-  ratesPerSecond?: boolean
 }
 
-export function ContainerCard({ container, serverId, showRuntime = false, ratesPerSecond = false }: ContainerCardProps) {
+export function ContainerCard({ container, serverId, showRuntime = false }: ContainerCardProps) {
   const navigate = useNavigate()
   const metrics = useRealtimeContainerMetrics(serverId, container.id)
 
@@ -63,7 +61,7 @@ export function ContainerCard({ container, serverId, showRuntime = false, ratesP
           </div>
           <div className="flex items-center gap-1 text-muted-foreground">
             <Network className="h-3 w-3 text-cyan-400" />
-            <span>{ratesPerSecond ? formatRate(metrics?.net_rx_bytes) : formatBytes(metrics?.net_rx_bytes)}↓</span>
+            <span>{formatRate(metrics?.net_rx_bytes)}↓</span>
           </div>
         </div>
 

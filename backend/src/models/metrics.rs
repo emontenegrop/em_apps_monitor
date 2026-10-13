@@ -30,9 +30,8 @@ pub enum WsEvent {
     },
     DockerInfo {
         server_id: Uuid,
-        /// docker | podman (None en el recolector central, que solo habla con Docker)
-        #[serde(skip_serializing_if = "Option::is_none")]
-        runtime: Option<String>,
+        /// docker | podman
+        runtime: String,
         data: DockerInfo,
     },
     ServerStatus {
