@@ -41,8 +41,11 @@ async fn dispatch(method: RequestMethod, clients: &Clients, host_root: Option<Pa
                 .map_err(|e| e.to_string())?;
             to_json(&list)
         }
-        RequestMethod::Inspect { runtime, container_id } => {
-            let (_, value) = find_container(clients, runtime, &container_id).await?;
+        RequestMethod::Inspect { runtime, container_id, reveal_env } => {
+            let (_, mut value) = find_container(clients, runtime, &container_id).await?;
+            if !reveal_env {
+                em_protocol::redact::redact_inspect_env(&mut value);
+            }
             Ok(value)
         }
         RequestMethod::Logs { runtime, container_id, tail } => {

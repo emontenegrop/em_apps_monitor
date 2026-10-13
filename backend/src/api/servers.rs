@@ -10,7 +10,6 @@ use uuid::Uuid;
 use em_protocol::messages::CLOSE_REVOKED;
 
 use crate::{
-    agents::auth,
     error::{ApiResult, AppError},
     models::server::{CreateServer, Server, UpdateServer},
     state::AppState,
@@ -158,7 +157,7 @@ pub async fn ping_server(
 
     // Servidor con agente: está en línea si su agente está conectado
     let has_agent: bool =
-        sqlx::query_scalar("SELECT agent_secret_hash IS NOT NULL FROM servers WHERE id = $1")
+        sqlx::query_scalar("SELECT uses_agent FROM servers WHERE id = $1")
             .bind(id)
             .fetch_one(&state.db)
             .await?;
@@ -216,30 +215,3 @@ pub async fn ping_server(
     }
 }
 
-/// Genera una credencial nueva para el agente del servidor. La anterior deja de valer
-/// y, si había un agente conectado con ella, se lo desconecta.
-///
-/// El secreto se devuelve una sola vez; en la BD solo queda su hash.
-pub async fn rotate_agent_credentials(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-) -> ApiResult<Json<serde_json::Value>> {
-    let secret = auth::generate_secret();
-    let res = sqlx::query("UPDATE servers SET agent_secret_hash = $2, updated_at = NOW() WHERE id = $1")
-        .bind(id)
-        .bind(auth::hash_secret(&secret))
-        .execute(&state.db)
-        .await?;
-    if res.rows_affected() == 0 {
-        return Err(AppError::NotFound(format!("Server {id} not found")));
-    }
-    // Ahora lo monitorea el agente: se descarta el cliente del recolector central
-    state.docker_clients.write().await.remove(&id);
-    state.agents.disconnect(id, CLOSE_REVOKED, "credenciales rotadas").await;
-
-    Ok(Json(serde_json::json!({
-        "server_id": id,
-        "secret": secret,
-        "token": format!("{id}.{secret}"),
-    })))
-}

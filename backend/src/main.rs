@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
-use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod agents;
 mod api;
+mod auth;
 mod collectors;
 mod config;
 mod db;
@@ -31,7 +32,20 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::create_pool(&cfg.database_url).await?;
     db::run_migrations(&pool).await?;
 
-    let state = Arc::new(state::AppState::new(pool, cfg.collection_interval_secs));
+    auth::bootstrap_admin(&pool, cfg.admin_username.as_deref(), cfg.admin_password.as_deref()).await?;
+
+    let agent_ca = match agents::enroll::AgentCa::load(std::path::Path::new(&cfg.agent_ca_file)) {
+        Ok(ca) => {
+            tracing::info!("CA para agentes: {} (huella {})", cfg.agent_ca_file, ca.fingerprint);
+            Some(ca)
+        }
+        Err(e) => {
+            tracing::warn!("sin CA para agentes ({}: {e}): la inscripción no podrá verificar el central", cfg.agent_ca_file);
+            None
+        }
+    };
+
+    let state = Arc::new(state::AppState::new(pool, &cfg, agent_ca));
 
     tracing::info!(
         "Starting collector (interval = {}s, legacy = {})…",
@@ -40,21 +54,20 @@ async fn main() -> anyhow::Result<()> {
     );
     scheduler::start_collectors(state.clone(), cfg.collection_interval_secs, cfg.legacy_collector).await;
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
+    // Sin CORS: la UI se sirve desde el mismo origen (nginx) y la sesión va en cookie SameSite=Strict
     let app = axum::Router::new()
-        .nest("/api", api::router())
-        .route("/ws", axum::routing::get(api::websocket::ws_handler))
-        .layer(cors)
+        .nest("/api", api::router(state.clone()))
+        .route(
+            "/ws",
+            axum::routing::get(api::websocket::ws_handler)
+                .route_layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_session)),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&cfg.server_addr).await?;
     tracing::info!("EM Monitor backend listening on {}", cfg.server_addr);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }

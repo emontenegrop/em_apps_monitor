@@ -30,4 +30,6 @@ reqwest        = { version = "0.12", features = ["json"] }
 rand           = "0.8"
 sha2           = "0.10"
 hex            = "0.4"
+argon2         = "0.5"
+base64         = "0.22"
 em_protocol    = { path = "../crates/protocol", features = ["sqlx"] }

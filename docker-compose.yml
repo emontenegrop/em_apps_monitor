@@ -35,11 +35,19 @@ services:
       COLLECTION_INTERVAL_SECS: 15
       METRICS_RETENTION_DAYS:   7
       RUST_LOG:                 em_monitor=debug,tower_http=info
+      # Administrador inicial: solo se usa si la BD no tiene usuarios (ver .env.example)
+      ADMIN_USERNAME:           ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD:           ${ADMIN_PASSWORD:-}
+      # URL que se muestra en el comando de instalación de los agentes
+      PUBLIC_URL:               ${PUBLIC_URL:-https://172.16.27.31:8443}
+      AGENT_CA_FILE:            /etc/em-monitor/ca.crt
     ports:
       - "3000:3000"
     volumes:
       # Socket de Docker del host para monitorear contenedores locales
       - /var/run/docker.sock:/var/run/docker.sock
+      # CA interna (solo el certificado público) que se entrega a los agentes al inscribirse
+      - ./pki/ca/ca.crt:/etc/em-monitor/ca.crt:ro
     group_add:
       - "${DOCKER_GID:-999}"
 

@@ -10,6 +10,7 @@ mod collectors;
 mod config;
 mod connection;
 mod credentials;
+mod enroll;
 mod rpc;
 mod snapshot;
 mod tls;
@@ -42,6 +43,21 @@ enum Command {
     Check,
     /// Se conecta al central y envía snapshots periódicamente (modo servicio)
     Run,
+    /// Inscribe este host en el central con una ficha de un solo uso
+    Enroll {
+        /// URL del central, p. ej. https://172.16.27.31:8443
+        #[arg(long)]
+        url: String,
+        /// Ficha de inscripción generada en la UI
+        #[arg(long)]
+        token: String,
+        /// Huella SHA-256 de la CA del central (incluida en el comando de instalación)
+        #[arg(long)]
+        ca_fingerprint: String,
+        /// Directorio donde se guardan la CA, la credencial y la configuración
+        #[arg(long, default_value = "/etc/em-agent")]
+        config_dir: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -57,6 +73,12 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
+    // La inscripción no necesita (ni debe fallar por) una configuración previa
+    if let Command::Enroll { url, token, ca_fingerprint, config_dir } = cli.command {
+        let args = enroll::EnrollArgs { url, token, ca_fingerprint, config_dir };
+        return tokio::task::spawn_blocking(move || enroll::run(args)).await?;
+    }
+
     let explicit = cli.config.is_some();
     let path = cli.config.unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
     let cfg = AgentConfig::load(&path, explicit)?;
@@ -64,6 +86,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Collect { sample_secs, compact } => collect_once(cfg, sample_secs, compact).await,
         Command::Run => run(cfg).await,
+        Command::Enroll { .. } => unreachable!("se atiende antes de cargar la configuración"),
         Command::Check => {
             if !check::run(&cfg).await {
                 std::process::exit(1);

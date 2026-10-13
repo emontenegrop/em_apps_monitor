@@ -105,7 +105,7 @@ pub async fn disk_usage(
     Path(server_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<DiskUsage>>> {
     let has_agent: Option<bool> =
-        sqlx::query_scalar("SELECT agent_secret_hash IS NOT NULL FROM servers WHERE id = $1")
+        sqlx::query_scalar("SELECT uses_agent FROM servers WHERE id = $1")
             .bind(server_id)
             .fetch_optional(&state.db)
             .await?;

@@ -29,6 +29,10 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 # ring como proveedor criptográfico: compila sin cmake/nasm, también para musl
 rustls         = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = "2"
+# Cliente HTTP bloqueante para `enroll` (rustls 0.23 con ring, igual que el WebSocket)
+ureq           = { version = "2", default-features = false, features = ["tls", "json"] }
+sha2           = "0.10"
+hex            = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc           = "0.2"

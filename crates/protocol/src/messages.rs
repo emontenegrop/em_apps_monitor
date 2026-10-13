@@ -55,7 +55,13 @@ pub struct Snapshot {
 pub enum RequestMethod {
     Ping,
     Disks,
-    Inspect { runtime: RuntimeKind, container_id: String },
+    Inspect {
+        runtime: RuntimeKind,
+        container_id: String,
+        /// Por defecto los valores de `Config.Env` se ocultan antes de salir del host
+        #[serde(default)]
+        reveal_env: bool,
+    },
     Logs { runtime: RuntimeKind, container_id: String, tail: u32 },
     Images { runtime: RuntimeKind },
     Networks { runtime: RuntimeKind },

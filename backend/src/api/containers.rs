@@ -2,13 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    Extension, Json,
 };
 use em_protocol::messages::{RequestMethod, RuntimeKind};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
+    auth::CurrentUser,
     collectors::docker::{list_images, list_networks, list_volumes},
     error::{ApiResult, AppError},
     models::container::Container,
@@ -29,6 +30,13 @@ pub struct ContainerFilter {
 pub struct RuntimeQuery {
     /// docker | podman. Por defecto, el primer runtime del servidor.
     pub runtime: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct InspectQuery {
+    /// Muestra los valores de las variables de entorno (por defecto se ocultan)
+    #[serde(default)]
+    pub reveal_env: bool,
 }
 
 #[derive(Deserialize)]
@@ -81,20 +89,27 @@ pub async fn get_container(
 /// Inspect returns the raw Docker inspect JSON
 pub async fn inspect_container(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<CurrentUser>,
     Path((server_id, container_id)): Path<(Uuid, String)>,
+    Query(q): Query<InspectQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    if q.reveal_env {
+        tracing::warn!("'{}' pidió las variables de entorno de {container_id} en {server_id}", user.username);
+    }
+
     if has_agent(&state, server_id).await? {
         let runtime = container_runtime(&state, server_id, &container_id).await?;
-        let value = state
-            .agents
-            .request(server_id, RequestMethod::Inspect { runtime, container_id }, AGENT_TIMEOUT)
-            .await?;
-        return Ok(Json(value));
+        let method = RequestMethod::Inspect { runtime, container_id, reveal_env: q.reveal_env };
+        return Ok(Json(state.agents.request(server_id, method, AGENT_TIMEOUT).await?));
     }
 
     let docker = get_docker_client(&state, server_id).await?;
     let details = docker.inspect_container(&container_id, None).await?;
-    Ok(Json(serde_json::to_value(details)?))
+    let mut value = serde_json::to_value(details)?;
+    if !q.reveal_env {
+        em_protocol::redact::redact_inspect_env(&mut value);
+    }
+    Ok(Json(value))
 }
 
 pub async fn container_logs(
@@ -189,7 +204,7 @@ pub async fn server_volumes(
 
 /// ¿El servidor lo monitorea un agente? (si no, se usa el recolector central)
 async fn has_agent(state: &Arc<AppState>, server_id: Uuid) -> ApiResult<bool> {
-    sqlx::query_scalar::<_, bool>("SELECT agent_secret_hash IS NOT NULL FROM servers WHERE id = $1")
+    sqlx::query_scalar::<_, bool>("SELECT uses_agent FROM servers WHERE id = $1")
         .bind(server_id)
         .fetch_optional(&state.db)
         .await?

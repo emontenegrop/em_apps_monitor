@@ -1,10 +1,22 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Activity, Server, Settings } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Activity, LogOut, Server, UserRound } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { authApi } from '@/lib/auth'
 import { cn } from '@/lib/utils'
+
+async function logout() {
+  try {
+    await authApi.logout()
+  } finally {
+    // Recarga completa: limpia la caché de consultas y cierra el WebSocket
+    window.location.assign('/login')
+  }
+}
 
 export function Layout() {
   const { connected } = useWebSocket()
+  const { data: user } = useQuery({ queryKey: ['auth', 'me'], queryFn: authApi.me })
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -51,8 +63,28 @@ export function Layout() {
           </NavLink>
         </nav>
 
-        <div className="p-4 border-t border-border text-xs text-muted-foreground">
-          EM Apps Monitor v0.1
+        <div className="p-2 border-t border-border space-y-0.5">
+          <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              cn('flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors',
+                isActive
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground')
+            }
+          >
+            <UserRound className="h-4 w-4" />
+            <span className="truncate">{user?.username ?? 'Mi cuenta'}</span>
+          </NavLink>
+          <button
+            type="button"
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Salir
+          </button>
+          <div className="px-3 pt-2 text-xs text-muted-foreground">EM Apps Monitor v0.1</div>
         </div>
       </aside>
 

@@ -6,14 +6,25 @@ pub mod websocket;
 use std::sync::Arc;
 
 use axum::{
+    middleware,
     routing::{delete, get, post, put},
     Router,
 };
 
-use crate::state::AppState;
+use crate::{agents, auth, state::AppState};
 
-pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    // Sin sesión: login y endpoints de los agentes (que se autentican con su propia credencial)
+    let public = Router::new()
+        .route("/auth/login", post(auth::login))
+        .route("/auth/logout", post(auth::logout))
+        .route("/agent/ws", get(agents::ws::agent_ws))
+        .route("/agent/enroll", post(agents::enroll::enroll))
+        .route("/agent/ca.crt", get(agents::enroll::ca_certificate));
+
+    let protected = Router::new()
+        .route("/auth/me", get(auth::me))
+        .route("/auth/password", post(auth::change_password))
         // Servers
         .route("/servers", get(servers::list_servers))
         .route("/servers", post(servers::create_server))
@@ -21,9 +32,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:id", put(servers::update_server))
         .route("/servers/:id", delete(servers::delete_server))
         .route("/servers/:id/ping", post(servers::ping_server))
-        .route("/servers/:id/agent-credentials", post(servers::rotate_agent_credentials))
-        // Agentes remotos
-        .route("/agent/ws", get(crate::agents::ws::agent_ws))
+        .route("/servers/:id/enrollment-token", post(agents::enroll::create_enrollment_token))
+        .route("/servers/:id/revoke", post(agents::enroll::revoke_agent))
         // Containers
         .route("/servers/:id/containers", get(containers::list_containers))
         .route("/servers/:id/containers/:cid", get(containers::get_container))
@@ -38,4 +48,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:id/metrics/docker", get(metrics::docker_info))
         .route("/servers/:id/metrics/disks", get(metrics::disk_usage))
         .route("/servers/:id/containers/:cid/metrics", get(metrics::container_metrics))
+        .route_layer(middleware::from_fn_with_state(state, auth::require_session));
+
+    public.merge(protected)
 }

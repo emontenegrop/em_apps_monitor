@@ -6,6 +6,7 @@
 pub mod container;
 pub mod messages;
 pub mod metrics;
+pub mod redact;
 
 /// Versión del protocolo agente ↔ central. Se incrementa ante cambios incompatibles.
 pub const PROTOCOL_VERSION: u32 = 1;

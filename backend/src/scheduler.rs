@@ -55,7 +55,7 @@ pub async fn start_collectors(state: Arc<AppState>, interval_secs: u64, legacy: 
 async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
     let servers = sqlx::query_as::<_, crate::models::server::Server>(
         // Los servidores con agente los alimenta su agente, no este recolector
-        "SELECT * FROM servers WHERE is_active = true AND agent_secret_hash IS NULL",
+        "SELECT * FROM servers WHERE is_active = true AND NOT uses_agent",
     )
     .fetch_all(&state.db)
     .await?;
@@ -186,7 +186,7 @@ async fn run_collection_cycle(state: &Arc<AppState>) -> anyhow::Result<()> {
 async fn mark_stale_agents_offline(state: &Arc<AppState>, max_age_secs: u64) {
     let stale: Vec<Uuid> = match sqlx::query_scalar(
         r#"UPDATE servers SET status = 'offline', updated_at = NOW()
-           WHERE agent_secret_hash IS NOT NULL AND status = 'online'
+           WHERE uses_agent AND status = 'online'
              AND (last_seen_at IS NULL OR last_seen_at < NOW() - make_interval(secs => $1))
            RETURNING id"#,
     )
@@ -363,6 +363,7 @@ async fn prune_old_metrics(state: &Arc<AppState>) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM container_metrics WHERE time < NOW() - INTERVAL '7 days'")
         .execute(&state.db)
         .await?;
-    tracing::debug!("Old metrics pruned");
+    let sessions = crate::auth::prune_sessions(&state.db).await?;
+    tracing::debug!("Old metrics pruned ({sessions} expired sessions)");
     Ok(())
 }
