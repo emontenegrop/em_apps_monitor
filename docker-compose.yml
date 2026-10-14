@@ -41,8 +41,9 @@ services:
       # URL que se muestra en el comando de instalación de los agentes
       PUBLIC_URL:               ${PUBLIC_URL:-https://172.16.27.31:8443}
       AGENT_CA_FILE:            /etc/em-monitor/ca.crt
-    ports:
-      - "3000:3000"
+    # Sin puertos publicados: solo se accede por nginx (HTTPS) en la red interna
+    expose:
+      - "3000"
     volumes:
       # CA interna (solo el certificado público) que se entrega a los agentes al inscribirse.
       # El backend no accede a Docker: los datos los envían los agentes.
@@ -58,7 +59,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "8880:80"
       - "8443:443"
     volumes:
       # Certificado del central emitido por la CA interna: ./pki/em-pki.sh server central <SAN...>
