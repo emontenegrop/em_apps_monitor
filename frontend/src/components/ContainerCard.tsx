@@ -2,16 +2,18 @@ import { useNavigate } from 'react-router-dom'
 import { Box, Cpu, MemoryStick, Network } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatPercent, formatBytes, containerStateColor } from '@/lib/utils'
+import { formatPercent, formatBytes, formatRate, containerStateColor, runtimeLabel } from '@/lib/utils'
 import { useRealtimeContainerMetrics } from '@/hooks/useWebSocket'
 import type { Container } from '@/types'
 
 interface ContainerCardProps {
   container: Container
   serverId: string
+  /** Mostrar el runtime (cuando el host tiene Docker y Podman) */
+  showRuntime?: boolean
 }
 
-export function ContainerCard({ container, serverId }: ContainerCardProps) {
+export function ContainerCard({ container, serverId, showRuntime = false }: ContainerCardProps) {
   const navigate = useNavigate()
   const metrics = useRealtimeContainerMetrics(serverId, container.id)
 
@@ -29,7 +31,10 @@ export function ContainerCard({ container, serverId }: ContainerCardProps) {
               <Box className={`h-4 w-4 shrink-0 ${stateClass}`} />
               <span className="font-semibold text-sm truncate">{container.name ?? container.short_id}</span>
             </div>
-            <div className="text-xs text-muted-foreground mt-0.5 truncate">{container.image}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 truncate">
+              {showRuntime && <span className="text-primary">{runtimeLabel(container.runtime_kind)} · </span>}
+              {container.image}
+            </div>
           </div>
           <Badge
             variant={
@@ -56,7 +61,7 @@ export function ContainerCard({ container, serverId }: ContainerCardProps) {
           </div>
           <div className="flex items-center gap-1 text-muted-foreground">
             <Network className="h-3 w-3 text-cyan-400" />
-            <span>{formatBytes(metrics?.net_rx_bytes)}↓</span>
+            <span>{formatRate(metrics?.net_rx_bytes)}↓</span>
           </div>
         </div>
 

@@ -8,9 +8,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    collectors::host::collect_disk_usage,
     error::ApiResult,
-    models::metrics::{ContainerMetrics, DockerInfo, DiskUsage, HostMetrics},
+    models::metrics::{ContainerMetrics, DockerInfo, DiskUsage, HostMetrics, RuntimeInfo},
     state::AppState,
 };
 
@@ -91,7 +90,7 @@ pub async fn docker_info(
     Path(server_id): Path<Uuid>,
 ) -> ApiResult<Json<Option<DockerInfo>>> {
     let info = sqlx::query_as::<_, DockerInfo>(
-        "SELECT * FROM docker_info WHERE server_id = $1",
+        "SELECT * FROM docker_info WHERE server_id = $1 ORDER BY runtime_kind LIMIT 1",
     )
     .bind(server_id)
     .fetch_optional(&state.db)
@@ -100,11 +99,43 @@ pub async fn docker_info(
     Ok(Json(info))
 }
 
+/// Info de cada runtime del servidor (Docker y/o Podman)
+pub async fn runtimes(
+    State(state): State<Arc<AppState>>,
+    Path(server_id): Path<Uuid>,
+) -> ApiResult<Json<Vec<RuntimeInfo>>> {
+    let rows = sqlx::query_as::<_, RuntimeInfo>(
+        "SELECT * FROM docker_info WHERE server_id = $1 ORDER BY runtime_kind",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 pub async fn disk_usage(
-    State(_state): State<Arc<AppState>>,
-    Path(_server_id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+    Path(server_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<DiskUsage>>> {
-    // For local servers, collect directly. Remote disk usage requires an agent.
-    let disks = collect_disk_usage();
-    Ok(Json(disks))
+    let rows: Vec<(String, String, String, i64, i64, i64, f64)> = sqlx::query_as(
+        r#"SELECT name, mount_point, fs_type, total_bytes, used_bytes, available_bytes, usage_percent
+           FROM disk_usage_latest WHERE server_id = $1 ORDER BY mount_point"#,
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(name, mount_point, fs_type, total, used, available, pct)| DiskUsage {
+                name,
+                mount_point,
+                total_bytes: total as u64,
+                used_bytes: used as u64,
+                available_bytes: available as u64,
+                usage_percent: pct,
+                fs_type,
+            })
+            .collect(),
+    ))
 }

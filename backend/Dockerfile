@@ -4,30 +4,34 @@
 # ── Build stage ───────────────────────────────────────────────────────────
 FROM rust:slim AS builder
 
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 # 1. Copy workspace manifests + frozen lockfile for reproducible dep resolution
 COPY Cargo.toml Cargo.lock ./
 COPY backend/Cargo.toml ./backend/
+COPY crates/protocol/Cargo.toml ./crates/protocol/
+# El agente es miembro del workspace: basta su manifiesto y un main vacío
+COPY agent/Cargo.toml ./agent/
+RUN mkdir -p agent/src && echo 'fn main(){}' > agent/src/main.rs
 
 # 2. Dummy binary to cache compiled dependencies before copying real src
-RUN mkdir -p backend/src && echo 'fn main(){}' > backend/src/main.rs && \
+RUN mkdir -p backend/src crates/protocol/src && echo 'fn main(){}' > backend/src/main.rs && \
+    touch crates/protocol/src/lib.rs && \
     cargo build --release -p em_monitor || true && \
-    rm -rf backend/src
+    rm -rf backend/src crates/protocol/src
 
 # 3. Copy real source and build
 COPY backend/src        ./backend/src
 COPY backend/migrations ./backend/migrations
+COPY crates/protocol/src ./crates/protocol/src
 
 # Touch main.rs to invalidate cached binary and force full re-link
-RUN touch backend/src/main.rs && cargo build --release -p em_monitor
+RUN touch backend/src/main.rs crates/protocol/src/lib.rs && cargo build --release -p em_monitor
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/em_monitor /usr/local/bin/em_monitor
 # Migrations are embedded at compile time by sqlx::migrate!() — no runtime files needed

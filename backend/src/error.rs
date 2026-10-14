@@ -10,9 +10,6 @@ pub enum AppError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("Docker error: {0}")]
-    Docker(#[from] bollard::errors::Error),
-
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -24,6 +21,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
+
+    #[error("Agent error: {0}")]
+    Agent(#[from] crate::agents::registry::RpcError),
 }
 
 impl IntoResponse for AppError {
@@ -35,13 +35,18 @@ impl IntoResponse for AppError {
                 tracing::error!("DB error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
             }
-            AppError::Docker(e) => {
-                tracing::error!("Docker error: {e}");
-                (StatusCode::BAD_GATEWAY, format!("Docker error: {e}"))
-            }
             AppError::Json(e) => {
                 tracing::error!("JSON error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialization error: {e}"))
+            }
+            AppError::Agent(e) => {
+                use crate::agents::registry::RpcError;
+                let status = match e {
+                    RpcError::Offline => StatusCode::SERVICE_UNAVAILABLE,
+                    RpcError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+                    RpcError::Agent(_) => StatusCode::BAD_GATEWAY,
+                };
+                (status, e.to_string())
             }
             AppError::Internal(e) => {
                 tracing::error!("Internal error: {e}");

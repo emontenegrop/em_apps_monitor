@@ -1,22 +1,46 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    Extension, Json,
 };
+use em_protocol::messages::{RequestMethod, RuntimeKind};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    collectors::docker::{list_images, list_networks, list_volumes},
+    auth::CurrentUser,
     error::{ApiResult, AppError},
     models::container::Container,
     state::AppState,
 };
 
+/// Tiempo máximo de espera de una solicitud al agente
+const AGENT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Máximo de líneas de log que se piden
+const MAX_LOG_TAIL: u32 = 1000;
+
 #[derive(Deserialize)]
 pub struct ContainerFilter {
     pub state: Option<String>, // running | exited | all
+}
+
+#[derive(Deserialize)]
+pub struct RuntimeQuery {
+    /// docker | podman. Por defecto, el primer runtime del servidor.
+    pub runtime: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct InspectQuery {
+    /// Muestra los valores de las variables de entorno (por defecto se ocultan)
+    #[serde(default)]
+    pub reveal_env: bool,
+}
+
+#[derive(Deserialize)]
+pub struct LogsQuery {
+    pub tail: Option<u32>,
 }
 
 pub async fn list_containers(
@@ -64,81 +88,121 @@ pub async fn get_container(
 /// Inspect returns the raw Docker inspect JSON
 pub async fn inspect_container(
     State(state): State<Arc<AppState>>,
+    Extension(user): Extension<CurrentUser>,
     Path((server_id, container_id)): Path<(Uuid, String)>,
+    Query(q): Query<InspectQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let docker = get_docker_client(&state, server_id).await?;
-    let details = docker.inspect_container(&container_id, None).await?;
-    Ok(Json(serde_json::to_value(details)?))
+    if q.reveal_env {
+        tracing::warn!("'{}' pidió las variables de entorno de {container_id} en {server_id}", user.username);
+    }
+
+    let runtime = container_runtime(&state, server_id, &container_id).await?;
+    let method = RequestMethod::Inspect { runtime, container_id, reveal_env: q.reveal_env };
+    Ok(Json(state.agents.request(server_id, method, AGENT_TIMEOUT).await?))
 }
 
 pub async fn container_logs(
     State(state): State<Arc<AppState>>,
     Path((server_id, container_id)): Path<(Uuid, String)>,
+    Query(q): Query<LogsQuery>,
 ) -> ApiResult<Json<Vec<String>>> {
-    use bollard::container::LogsOptions;
-    use futures_util::StreamExt;
+    let tail = q.tail.unwrap_or(200).clamp(1, MAX_LOG_TAIL);
 
-    let docker = get_docker_client(&state, server_id).await?;
-    let mut stream = docker.logs(
-        &container_id,
-        Some(LogsOptions::<String> {
-            stdout: true,
-            stderr: true,
-            tail: "200".to_string(),
-            timestamps: true,
-            ..Default::default()
-        }),
-    );
-
-    let mut lines = Vec::new();
-    while let Some(msg) = stream.next().await {
-        match msg {
-            Ok(output) => lines.push(output.to_string()),
-            Err(_) => break,
-        }
-    }
+    let runtime = container_runtime(&state, server_id, &container_id).await?;
+    let value = state
+        .agents
+        .request(server_id, RequestMethod::Logs { runtime, container_id, tail }, AGENT_TIMEOUT)
+        .await?;
+    let lines: Vec<String> = serde_json::from_value(value)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("logs del agente con formato inválido: {e}")))?;
     Ok(Json(lines))
 }
 
 pub async fn server_images(
     State(state): State<Arc<AppState>>,
     Path(server_id): Path<Uuid>,
+    Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_images(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Images { runtime }, AGENT_TIMEOUT).await?))
 }
 
 pub async fn server_networks(
     State(state): State<Arc<AppState>>,
     Path(server_id): Path<Uuid>,
+    Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_networks(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Networks { runtime }, AGENT_TIMEOUT).await?))
 }
 
 pub async fn server_volumes(
     State(state): State<Arc<AppState>>,
     Path(server_id): Path<Uuid>,
+    Query(q): Query<RuntimeQuery>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let docker = get_docker_client(&state, server_id).await?;
-    Ok(Json(list_volumes(&docker).await?))
+    let runtime = requested_runtime(&state, server_id, q.runtime.as_deref()).await?;
+    Ok(Json(state.agents.request(server_id, RequestMethod::Volumes { runtime }, AGENT_TIMEOUT).await?))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-async fn get_docker_client(
-    state: &Arc<AppState>,
-    server_id: Uuid,
-) -> ApiResult<std::sync::Arc<bollard::Docker>> {
-    state
-        .docker_clients
-        .read()
-        .await
-        .get(&server_id)
-        .cloned()
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "No active Docker connection for server {server_id}. Try pinging the server first."
-            ))
-        })
+/// 404 si el servidor no existe
+async fn ensure_server(state: &Arc<AppState>, server_id: Uuid) -> ApiResult<()> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM servers WHERE id = $1)")
+        .bind(server_id)
+        .fetch_one(&state.db)
+        .await?;
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(format!("Server {server_id} not found")))
+    }
+}
+
+fn parse_runtime(name: &str) -> Option<RuntimeKind> {
+    match name {
+        "docker" => Some(RuntimeKind::Docker),
+        "podman" => Some(RuntimeKind::Podman),
+        _ => None,
+    }
+}
+
+/// Runtime de un contenedor según el último listado. Acepta id, id corto o nombre,
+/// igual que la API de Docker.
+async fn container_runtime(state: &Arc<AppState>, server_id: Uuid, container: &str) -> ApiResult<RuntimeKind> {
+    ensure_server(state, server_id).await?;
+    let kind: Option<String> = sqlx::query_scalar(
+        r#"SELECT runtime_kind FROM containers
+           WHERE server_id = $1 AND (id = $2 OR short_id = $2 OR name = $2)
+           LIMIT 1"#,
+    )
+    .bind(server_id)
+    .bind(container)
+    .fetch_optional(&state.db)
+    .await?;
+    match kind.as_deref().and_then(parse_runtime) {
+        Some(k) => Ok(k),
+        // Contenedor recién creado que aún no aparece en el listado
+        None => requested_runtime(state, server_id, None).await,
+    }
+}
+
+/// Runtime pedido por query, o el primero que reportó el agente
+async fn requested_runtime(state: &Arc<AppState>, server_id: Uuid, name: Option<&str>) -> ApiResult<RuntimeKind> {
+    ensure_server(state, server_id).await?;
+    if let Some(name) = name {
+        return parse_runtime(name)
+            .ok_or_else(|| AppError::BadRequest(format!("runtime desconocido: {name} (docker | podman)")));
+    }
+    let first: Option<String> =
+        sqlx::query_scalar("SELECT runtimes -> 0 ->> 'kind' FROM servers WHERE id = $1")
+            .bind(server_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+    first
+        .as_deref()
+        .and_then(parse_runtime)
+        .ok_or_else(|| AppError::BadRequest("el agente no reportó ningún runtime".into()))
 }

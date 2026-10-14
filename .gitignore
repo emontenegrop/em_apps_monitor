@@ -14,3 +14,13 @@ backend/.env
 
 # OS
 .DS_Store
+
+# PKI interna — claves y certificados emitidos (nunca a git)
+pki/ca/
+pki/issued/
+
+# Binarios del agente generados por agent/build-release.sh
+dist/
+
+# Respaldos de la base de datos
+backups/

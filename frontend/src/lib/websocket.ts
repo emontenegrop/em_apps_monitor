@@ -8,7 +8,10 @@ export class MonitorWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private alive = true
 
-  constructor(private url: string = `ws://${window.location.host}/ws`) {}
+  // wss:// cuando la UI se sirve por HTTPS (ws:// sería bloqueado como contenido mixto)
+  constructor(
+    private url: string = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`,
+  ) {}
 
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return

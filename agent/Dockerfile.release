@@ -1,0 +1,37 @@
+# Binarios estáticos (musl) del agente para x86_64 y aarch64.
+# Uso: agent/build-release.sh  (deja los archivos en dist/agent/)
+#
+# Contexto de build: raíz del workspace.
+
+FROM rust:1-slim AS build
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl xz-utils ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# zig hace de enlazador cruzado para musl (incluye el código C de ring)
+ARG ZIG_VERSION=0.13.0
+RUN curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-$(uname -m)-${ZIG_VERSION}.tar.xz" \
+      | tar -xJ -C /opt \
+ && ln -s /opt/zig-linux-*-${ZIG_VERSION}/zig /usr/local/bin/zig
+
+# 0.19.x no filtra --fix-cortex-a53-843419 (rustc lo agrega para aarch64-musl y zig
+# no lo acepta), así que no enlaza para arm64.
+ARG CARGO_ZIGBUILD_VERSION=0.23.4
+RUN cargo install cargo-zigbuild --version "${CARGO_ZIGBUILD_VERSION}" --locked \
+ && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+
+WORKDIR /src
+COPY . .
+
+RUN cargo zigbuild --release --locked -p em_agent \
+      --target x86_64-unknown-linux-musl \
+      --target aarch64-unknown-linux-musl \
+ && mkdir /out \
+ && cp target/x86_64-unknown-linux-musl/release/em-agent  /out/em-agent-linux-amd64 \
+ && cp target/aarch64-unknown-linux-musl/release/em-agent /out/em-agent-linux-arm64 \
+ && cp agent/packaging/install.sh /out/install.sh \
+ && cd /out && sha256sum em-agent-linux-amd64 em-agent-linux-arm64 install.sh > SHA256SUMS
+
+FROM scratch
+COPY --from=build /out/ /

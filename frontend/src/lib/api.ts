@@ -6,10 +6,48 @@ import type {
   DiskUsage,
   DockerInfo,
   HostMetrics,
+  RuntimeInfo,
+  RuntimeKind,
   Server,
 } from '@/types'
 
 const http = axios.create({ baseURL: '/api' })
+
+let loggingOut = false
+
+/** Al cerrar sesión, los 401 de consultas en curso no deben redirigir con `?next=` */
+export function markLoggingOut() {
+  loggingOut = true
+}
+
+// Sesión vencida o cerrada en otra pestaña: volver al login conservando la ruta actual
+http.interceptors.response.use(
+  r => r,
+  err => {
+    if (
+      !loggingOut &&
+      axios.isAxiosError(err) &&
+      err.response?.status === 401 &&
+      window.location.pathname !== '/login'
+    ) {
+      const next = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.assign(`/login?next=${next}`)
+    }
+    return Promise.reject(err)
+  },
+)
+
+export interface EnrollmentToken {
+  server_id: string
+  token: string
+  expires_at: string
+  server_url: string
+  ca_fingerprint: string | null
+  /** Instalación completa en un host con systemd */
+  install_command: string | null
+  /** Solo la inscripción (binario ya instalado o modo contenedor) */
+  enroll_command: string | null
+}
 
 // ── Servers ────────────────────────────────────────────────────────────────
 export const serversApi = {
@@ -20,7 +58,15 @@ export const serversApi = {
   update: (id: string, payload: Partial<CreateServerPayload & { is_active: boolean }>) =>
     http.put<Server>(`/servers/${id}`, payload).then(r => r.data),
   delete: (id: string) => http.delete(`/servers/${id}`).then(r => r.data),
-  ping: (id: string) => http.post<{ status: string; error?: string }>(`/servers/${id}/ping`).then(r => r.data),
+  ping: (id: string) =>
+    http
+      .post<{ status: string; error?: string; via?: string; latency_ms?: number }>(`/servers/${id}/ping`)
+      .then(r => r.data),
+  /** Ficha de inscripción de un solo uso para instalar el agente */
+  enrollmentToken: (id: string) =>
+    http.post<EnrollmentToken>(`/servers/${id}/enrollment-token`).then(r => r.data),
+  /** Revoca la credencial del agente y lo desconecta */
+  revokeAgent: (id: string) => http.post(`/servers/${id}/revoke`),
 }
 
 // ── Containers ─────────────────────────────────────────────────────────────
@@ -29,16 +75,22 @@ export const containersApi = {
     http.get<Container[]>(`/servers/${serverId}/containers`, { params: { state } }).then(r => r.data),
   get: (serverId: string, containerId: string) =>
     http.get<Container>(`/servers/${serverId}/containers/${containerId}`).then(r => r.data),
-  inspect: (serverId: string, containerId: string) =>
-    http.get(`/servers/${serverId}/containers/${containerId}/inspect`).then(r => r.data),
-  logs: (serverId: string, containerId: string) =>
-    http.get<string[]>(`/servers/${serverId}/containers/${containerId}/logs`).then(r => r.data),
-  images: (serverId: string) =>
-    http.get(`/servers/${serverId}/images`).then(r => r.data),
-  networks: (serverId: string) =>
-    http.get(`/servers/${serverId}/networks`).then(r => r.data),
-  volumes: (serverId: string) =>
-    http.get(`/servers/${serverId}/volumes`).then(r => r.data),
+  inspect: (serverId: string, containerId: string, revealEnv = false) =>
+    http
+      .get(`/servers/${serverId}/containers/${containerId}/inspect`, {
+        params: revealEnv ? { reveal_env: true } : undefined,
+      })
+      .then(r => r.data),
+  logs: (serverId: string, containerId: string, tail = 200) =>
+    http
+      .get<string[]>(`/servers/${serverId}/containers/${containerId}/logs`, { params: { tail } })
+      .then(r => r.data),
+  images: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/images`, { params: { runtime } }).then(r => r.data),
+  networks: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/networks`, { params: { runtime } }).then(r => r.data),
+  volumes: (serverId: string, runtime?: RuntimeKind) =>
+    http.get(`/servers/${serverId}/volumes`, { params: { runtime } }).then(r => r.data),
 }
 
 // ── Metrics ────────────────────────────────────────────────────────────────
@@ -57,4 +109,6 @@ export const metricsApi = {
     http.get<DockerInfo | null>(`/servers/${serverId}/metrics/docker`).then(r => r.data),
   disks: (serverId: string) =>
     http.get<DiskUsage[]>(`/servers/${serverId}/metrics/disks`).then(r => r.data),
+  runtimes: (serverId: string) =>
+    http.get<RuntimeInfo[]>(`/servers/${serverId}/runtimes`).then(r => r.data),
 }

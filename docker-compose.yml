@@ -35,13 +35,19 @@ services:
       COLLECTION_INTERVAL_SECS: 15
       METRICS_RETENTION_DAYS:   7
       RUST_LOG:                 em_monitor=debug,tower_http=info
-    ports:
-      - "3000:3000"
+      # Administrador inicial: solo se usa si la BD no tiene usuarios (ver .env.example)
+      ADMIN_USERNAME:           ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD:           ${ADMIN_PASSWORD:-}
+      # URL que se muestra en el comando de instalación de los agentes
+      PUBLIC_URL:               ${PUBLIC_URL:-https://172.16.27.31:8443}
+      AGENT_CA_FILE:            /etc/em-monitor/ca.crt
+    # Sin puertos publicados: solo se accede por nginx (HTTPS) en la red interna
+    expose:
+      - "3000"
     volumes:
-      # Socket de Docker del host para monitorear contenedores locales
-      - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-999}"
+      # CA interna (solo el certificado público) que se entrega a los agentes al inscribirse.
+      # El backend no accede a Docker: los datos los envían los agentes.
+      - ./pki/ca/ca.crt:/etc/em-monitor/ca.crt:ro
 
   # ── React frontend (nginx) ───────────────────────────────────────────────
   frontend:
@@ -53,7 +59,38 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "8880:80"
+      - "8443:443"
+    volumes:
+      # Certificado del central emitido por la CA interna: ./pki/em-pki.sh server central <SAN...>
+      - ./pki/issued/central.crt:/etc/nginx/certs/server.crt:ro
+      - ./pki/issued/central.key:/etc/nginx/certs/server.key:ro
+      # Instalador y binarios del agente: ./agent/build-release.sh
+      - ./dist/agent:/usr/share/nginx/agent:ro
+
+  # ── Agente para el host del propio central (opcional) ────────────────────
+  # 1. Genera una ficha en la UI y copia la huella de la CA.
+  # 2. docker compose --profile agent run --rm agent enroll --url https://frontend --token FICHA --ca-fingerprint HUELLA
+  # 3. docker compose --profile agent up -d agent
+  agent:
+    profiles: ["agent"]
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: em_monitor_agent
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    # Ver los procesos del host (no los del contenedor)
+    pid: host
+    environment:
+      # Discos del host montado en /host
+      EM_AGENT_HOST_ROOT: /host
+    volumes:
+      - agent_config:/etc/em-agent
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:ro
 
 volumes:
   postgres_data:
+  agent_config:
