@@ -16,6 +16,9 @@ pub enum AppError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -31,6 +34,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::Database(e) => {
                 tracing::error!("DB error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())

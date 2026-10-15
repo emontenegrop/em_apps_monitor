@@ -55,30 +55,29 @@ export function ContainerDetail() {
   const stateClass = containerStateColor(container.state)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <Link to={`/servers/${serverId}`}>
           <Button variant="ghost" size="icon" className="h-8 w-8">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <Box className={`h-5 w-5 ${stateClass}`} />
-        <div>
-          <h1 className="text-xl font-bold">{container.name ?? container.short_id}</h1>
-          <div className="text-xs text-muted-foreground">{container.image}</div>
+        <Box className={`h-5 w-5 shrink-0 ${stateClass}`} />
+        <div className="min-w-0 flex-1 sm:flex-none">
+          <h1 className="text-lg md:text-xl font-bold break-all">{container.name ?? container.short_id}</h1>
+          <div className="text-xs text-muted-foreground break-all">{container.image}</div>
         </div>
-        <Badge
-          variant={container.state === 'running' ? 'success' : 'destructive'}
-          className="ml-2"
-        >
-          {container.state}
-        </Badge>
-        <Badge variant="outline">{runtimeLabel(container.runtime_kind)}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={container.state === 'running' ? 'success' : 'destructive'}>
+            {container.state}
+          </Badge>
+          <Badge variant="outline">{runtimeLabel(container.runtime_kind)}</Badge>
+        </div>
       </div>
 
       {/* Live metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
@@ -202,7 +201,7 @@ export function ContainerDetail() {
                 ].map(([k, v]) => (
                   <div key={String(k)} className="col-span-2 sm:col-span-1">
                     <dt className="text-xs text-muted-foreground">{k}</dt>
-                    <dd className="font-medium text-xs truncate">{String(v ?? '—')}</dd>
+                    <dd className="font-medium text-xs truncate" title={String(v ?? '')}>{String(v ?? '—')}</dd>
                   </div>
                 ))}
               </dl>
@@ -215,7 +214,7 @@ export function ContainerDetail() {
 
       {/* Logs */}
       <div>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
             <Terminal className="h-3.5 w-3.5" /> Logs (últimas {tail} líneas)
           </h2>

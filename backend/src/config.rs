@@ -15,6 +15,8 @@ pub struct Config {
     pub agent_ca_file: String,
     /// URL pública del central para el comando de instalación, p. ej. https://172.16.27.31:8443
     pub public_url: Option<String>,
+    /// Clave (base64, 32 bytes) con la que se cifra la contraseña SMTP en la BD
+    pub settings_key: Option<String>,
 }
 
 impl Config {
@@ -44,6 +46,7 @@ impl Config {
                 .ok()
                 .filter(|v| !v.is_empty())
                 .map(|v| v.trim_end_matches('/').to_string()),
+            settings_key: std::env::var("SETTINGS_KEY").ok().filter(|v| !v.is_empty()),
         })
     }
 }

@@ -76,6 +76,7 @@ impl SessionIngest {
         let mut tx = state.db.begin().await?;
         insert_host_metrics(&mut tx, &snap.host).await?;
         insert_container_metrics(&mut tx, &stats).await?;
+        insert_disk_metrics(&mut tx, sid, time, &snap.disks).await?;
 
         let mut containers_changed = false;
         if live {
@@ -307,5 +308,32 @@ async fn replace_disks(tx: &mut Tx<'_>, server_id: Uuid, disks: &[DiskUsage]) ->
     // El mismo punto de montaje no debería repetirse, pero no se confía en el agente
     qb.push(" ON CONFLICT (server_id, mount_point) DO NOTHING");
     qb.build().execute(&mut **tx).await?;
+    Ok(())
+}
+
+/// Uso de disco total del servidor para el historial. Un dispositivo montado en varios
+/// puntos (bind mounts) se cuenta una sola vez.
+async fn insert_disk_metrics(
+    tx: &mut Tx<'_>,
+    server_id: Uuid,
+    time: DateTime<Utc>,
+    disks: &[DiskUsage],
+) -> sqlx::Result<()> {
+    if disks.is_empty() {
+        return Ok(());
+    }
+    let mut by_device: BTreeMap<&str, &DiskUsage> = BTreeMap::new();
+    for d in disks {
+        by_device.entry(d.name.as_str()).or_insert(d);
+    }
+    let used: u64 = by_device.values().map(|d| d.used_bytes).sum();
+    let total: u64 = by_device.values().map(|d| d.total_bytes).sum();
+    sqlx::query("INSERT INTO disk_metrics (time, server_id, used_bytes, total_bytes) VALUES ($1, $2, $3, $4)")
+        .bind(time)
+        .bind(server_id)
+        .bind(used as i64)
+        .bind(total as i64)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }

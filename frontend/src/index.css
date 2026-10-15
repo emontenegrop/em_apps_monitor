@@ -43,3 +43,27 @@
     @apply bg-border rounded-full;
   }
 }
+
+/* Signos vitales (pantalla de Disponibilidad) */
+@layer components {
+  .vital-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.5) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  .vital-track {
+    animation: vital-scroll 4s linear infinite;
+    filter: drop-shadow(0 0 3px currentColor);
+  }
+  .vital-alert .vital-track {
+    animation-duration: 1.6s;
+  }
+  @keyframes vital-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-600px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vital-track { animation: none; }
+  }
+}

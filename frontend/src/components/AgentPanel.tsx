@@ -43,7 +43,7 @@ export function AgentPanel({ server }: { server: Server }) {
             <Bot className="h-4 w-4 text-primary" /> Agente
             <Badge variant={agentStateBadge[state]}>{agentStateLabel[state]}</Badge>
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button size="sm" variant="outline" disabled={token.isPending} onClick={() => token.mutate()}>
               <KeyRound className="h-3.5 w-3.5 mr-1" />
               {state === 'pending' || state === 'expired' || state === 'revoked'
@@ -116,7 +116,7 @@ export function AgentPanel({ server }: { server: Server }) {
               <div key={`${r.kind}-${r.socket}`} className="flex items-start gap-3 text-sm rounded-md bg-muted/40 p-2">
                 <Badge variant={r.error ? 'warning' : 'outline'}>{runtimeLabel(r.kind)}</Badge>
                 <div className="min-w-0">
-                  <div>
+                  <div className="break-all">
                     {r.version ?? '—'}
                     {r.rootless && <span className="text-muted-foreground"> · rootless</span>}
                     <span className="text-muted-foreground font-mono text-xs"> · {r.socket}</span>

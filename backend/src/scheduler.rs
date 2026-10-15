@@ -57,7 +57,7 @@ async fn mark_stale_agents_offline(state: &Arc<AppState>, max_age_secs: u64) {
 }
 
 async fn prune_old_metrics(state: &Arc<AppState>, retention_days: i32) -> anyhow::Result<()> {
-    for table in ["host_metrics", "container_metrics"] {
+    for table in ["host_metrics", "container_metrics", "disk_metrics"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE time < NOW() - make_interval(days => $1)"))
             .bind(retention_days)
             .execute(&state.db)

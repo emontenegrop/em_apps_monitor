@@ -8,6 +8,9 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Servers } from '@/pages/Servers'
 import { ServerDetail } from '@/pages/ServerDetail'
 import { ContainerDetail } from '@/pages/ContainerDetail'
+import { Uptime } from '@/pages/Uptime'
+import { UptimeTargets } from '@/pages/UptimeTargets'
+import { Notifications } from '@/pages/Notifications'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +30,9 @@ export default function App() {
               <Route path="/servers" element={<Servers />} />
               <Route path="/servers/:id" element={<ServerDetail />} />
               <Route path="/servers/:id/containers/:cid" element={<ContainerDetail />} />
+              <Route path="/uptime" element={<Uptime />} />
+              <Route path="/uptime/targets" element={<UptimeTargets />} />
+              <Route path="/settings/notifications" element={<Notifications />} />
               <Route path="/account" element={<Account />} />
             </Route>
           </Route>

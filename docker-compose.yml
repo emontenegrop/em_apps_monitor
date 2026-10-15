@@ -41,6 +41,8 @@ services:
       # URL que se muestra en el comando de instalación de los agentes
       PUBLIC_URL:               ${PUBLIC_URL:-https://172.16.27.31:8443}
       AGENT_CA_FILE:            /etc/em-monitor/ca.crt
+      # Cifra la contraseña SMTP de las notificaciones (ver .env.example)
+      SETTINGS_KEY:             ${SETTINGS_KEY:-}
     # Sin puertos publicados: solo se accede por nginx (HTTPS) en la red interna
     expose:
       - "3000"

@@ -12,6 +12,7 @@ mod error;
 mod models;
 mod scheduler;
 mod state;
+mod uptime;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,7 +45,19 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let state = Arc::new(state::AppState::new(pool, &cfg, agent_ca));
+    let settings_cipher = match cfg.settings_key.as_deref().map(uptime::crypto::SettingsCipher::from_base64) {
+        Some(Ok(c)) => Some(c),
+        Some(Err(e)) => {
+            tracing::warn!("SETTINGS_KEY inválida ({e}): no se podrá guardar la contraseña SMTP");
+            None
+        }
+        None => {
+            tracing::warn!("sin SETTINGS_KEY: no se podrá guardar la contraseña SMTP");
+            None
+        }
+    };
+
+    let state = Arc::new(state::AppState::new(pool, &cfg, agent_ca, settings_cipher));
 
     tracing::info!(
         "Tareas de fondo: intervalo de agentes {}s, retención {} días",
@@ -52,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.metrics_retention_days
     );
     scheduler::start_background_tasks(state.clone(), cfg.collection_interval_secs, cfg.metrics_retention_days).await;
+    uptime::worker::start(state.clone());
 
     // Sin CORS: la UI se sirve desde el mismo origen (nginx) y la sesión va en cookie SameSite=Strict
     let app = axum::Router::new()

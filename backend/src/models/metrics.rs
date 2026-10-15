@@ -38,4 +38,9 @@ pub enum WsEvent {
         server_id: Uuid,
         status: String,
     },
+    /// Se verificó una URL monitoreada (la UI de disponibilidad recarga sus datos)
+    TargetCheck {
+        target_id: Uuid,
+        status: String,
+    },
 }

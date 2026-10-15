@@ -21,7 +21,7 @@ export function EnvPanel({ serverId, containerId }: { serverId: string; containe
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm flex items-center gap-1">
             <KeyRound className="h-3.5 w-3.5" /> Variables de entorno
           </CardTitle>

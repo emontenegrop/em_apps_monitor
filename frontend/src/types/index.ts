@@ -103,6 +103,35 @@ export interface ContainerMetrics {
   pids: number | null
 }
 
+/** Período de las gráficas históricas */
+export type HistoryRange = '24h' | '3d' | '5d' | '7d'
+
+/** Serie agregada por intervalos de `bucket_secs` */
+export interface History<T> {
+  bucket_secs: number
+  points: T[]
+}
+
+export interface HostHistoryPoint {
+  server_id: string
+  time: string
+  cpu_percent: number | null
+  memory_used_bytes: number | null
+  memory_total_bytes: number | null
+  disk_used_bytes: number | null
+  disk_total_bytes: number | null
+}
+
+export interface ContainerHistoryPoint {
+  container_id: string
+  name: string
+  time: string
+  cpu_percent: number | null
+  memory_used_bytes: number | null
+  /** Lectura + escritura (bytes/s) */
+  disk_io_bytes: number | null
+}
+
 export interface DockerInfo {
   server_id: string
   docker_version: string | null
@@ -142,6 +171,7 @@ export type WsEvent =
   | { type: 'containers'; server_id: string; data: LiveContainer[] }
   | { type: 'docker_info'; server_id: string; runtime: RuntimeKind; data: DockerInfo }
   | { type: 'server_status'; server_id: string; status: string }
+  | { type: 'target_check'; target_id: string; status: string }
 
 /** Contenedor tal como llega por WebSocket (formato del agente) */
 export interface LiveContainer {

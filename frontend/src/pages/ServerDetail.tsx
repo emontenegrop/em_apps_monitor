@@ -94,18 +94,18 @@ export function ServerDetail() {
   const netTx = hostHistory.map(m => m.net_tx_bytes ?? 0)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-start sm:items-center gap-3 flex-wrap">
         <Link to="/">
           <Button variant="ghost" size="icon" className="h-8 w-8">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`h-2.5 w-2.5 rounded-full ${serverStatusColor(server.status)}`} />
-          <h1 className="text-xl font-bold">{server.name}</h1>
-          <Badge variant="outline">{server.hostname ?? 'sin inscribir'}</Badge>
+        <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${serverStatusColor(server.status)}`} />
+          <h1 className="text-lg md:text-xl font-bold break-all">{server.name}</h1>
+          <Badge variant="outline" className="max-w-full truncate">{server.hostname ?? 'sin inscribir'}</Badge>
           <Badge variant={agentStateBadge[state]}>{agentStateLabel[state]}</Badge>
           <RuntimeBadges runtimes={server.runtimes} showVersion />
         </div>
@@ -127,7 +127,7 @@ export function ServerDetail() {
       <AgentPanel server={server} />
 
       {/* Live stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
@@ -299,7 +299,7 @@ export function ServerDetail() {
             <Box className="h-3.5 w-3.5" /> Contenedores ({visible.length})
           </h2>
           {multiRuntime && (
-            <div className="flex gap-1">
+            <div className="flex gap-1 flex-wrap">
               {(['all', ...kinds] as const).map(k => (
                 <Button
                   key={k}

@@ -75,14 +75,14 @@ export function InstallCommand({ enrollment }: { enrollment: EnrollmentToken }) 
 
   return (
     <div className="space-y-4 text-sm">
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {TABS.map(t => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
             className={cn(
-              'px-3 py-1.5 text-xs -mb-px border-b-2 transition-colors',
+              'px-3 py-1.5 text-xs -mb-px border-b-2 transition-colors whitespace-nowrap',
               tab === t.id
                 ? 'border-primary text-primary'
                 : 'border-transparent text-muted-foreground hover:text-foreground',

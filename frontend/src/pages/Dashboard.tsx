@@ -3,6 +3,7 @@ import { Activity, Server, Box, Cpu } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ServerCard } from '@/components/ServerCard'
 import { AddServerDialog } from '@/components/AddServerDialog'
+import { HistoryPanel } from '@/components/HistoryPanel'
 import { serversApi } from '@/lib/api'
 
 function StatCard({
@@ -10,13 +11,13 @@ function StatCard({
 }: { icon: React.ElementType; label: string; value: string | number; color: string }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className={`p-2 rounded-md ${color}/20`}>
+      <CardContent className="flex items-center gap-3 md:gap-4 p-3 md:p-4">
+        <div className={`p-2 shrink-0 rounded-md ${color}/20`}>
           <Icon className={`h-5 w-5 ${color.replace('bg-', 'text-')}`} />
         </div>
-        <div>
-          <div className="text-2xl font-bold">{value}</div>
-          <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="min-w-0">
+          <div className="text-xl md:text-2xl font-bold">{value}</div>
+          <div className="text-xs text-muted-foreground truncate">{label}</div>
         </div>
       </CardContent>
     </Card>
@@ -34,8 +35,8 @@ export function Dashboard() {
   const offline = servers.filter(s => s.status === 'offline').length
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Activity className="h-5 w-5 text-primary" />
@@ -49,12 +50,14 @@ export function Dashboard() {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
         <StatCard icon={Server} label="Total servidores" value={servers.length} color="bg-blue-500" />
         <StatCard icon={Activity} label="En línea" value={online} color="bg-green-500" />
         <StatCard icon={Activity} label="Fuera de línea" value={offline} color="bg-red-500" />
         <StatCard icon={Box} label="Desconocido" value={servers.length - online - offline} color="bg-yellow-500" />
       </div>
+
+      {servers.length > 0 && <HistoryPanel servers={servers} />}
 
       {/* Server grid */}
       <div>

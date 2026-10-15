@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 
-use crate::{agents, auth, state::AppState};
+use crate::{agents, auth, state::AppState, uptime::api as uptime};
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     // Sin sesión: login y endpoints de los agentes (que se autentican con su propia credencial)
@@ -45,11 +45,26 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/servers/:id/networks", get(containers::server_networks))
         .route("/servers/:id/volumes", get(containers::server_volumes))
         // Metrics
+        .route("/metrics/history", get(metrics::host_history))
+        .route("/servers/:id/metrics/containers/history", get(metrics::containers_history))
         .route("/servers/:id/metrics/host", get(metrics::host_metrics))
         .route("/servers/:id/metrics/docker", get(metrics::docker_info))
         .route("/servers/:id/metrics/disks", get(metrics::disk_usage))
         .route("/servers/:id/runtimes", get(metrics::runtimes))
         .route("/servers/:id/containers/:cid/metrics", get(metrics::container_metrics))
+        // Disponibilidad de URLs/IPs
+        .route("/uptime/targets", get(uptime::list_targets).post(uptime::create_target))
+        .route("/uptime/targets/:id", delete(uptime::delete_target))
+        .route("/uptime/targets/:id/active", patch(uptime::set_target_active))
+        .route("/uptime/targets/:id/check", post(uptime::check_target_now))
+        .route("/uptime/availability", get(uptime::availability))
+        .route("/uptime/response-times", get(uptime::response_times))
+        .route("/uptime/incidents", get(uptime::incidents))
+        // Notificaciones por correo
+        .route("/settings/notifications", get(uptime::get_notifications).put(uptime::save_notifications))
+        .route("/settings/notifications/recipients", post(uptime::add_recipient))
+        .route("/settings/notifications/recipients/:id", delete(uptime::delete_recipient))
+        .route("/settings/notifications/test", post(uptime::test_notifications))
         .route_layer(middleware::from_fn_with_state(state, auth::require_session));
 
     public.merge(protected)

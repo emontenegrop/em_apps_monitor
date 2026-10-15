@@ -1,9 +1,13 @@
+use std::{collections::HashSet, sync::Mutex};
+
 use sqlx::PgPool;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 
 use crate::{
     agents::{enroll::AgentCa, registry::AgentRegistry},
     auth::RateLimiter,
+    uptime::crypto::SettingsCipher,
 };
 
 pub struct AppState {
@@ -19,10 +23,19 @@ pub struct AppState {
     pub cookie_secure: bool,
     pub agent_ca: Option<AgentCa>,
     pub public_url: Option<String>,
+    /// Cifra la contraseña SMTP; sin clave no se puede guardar ni enviar correo
+    pub settings_cipher: Option<SettingsCipher>,
+    /// URLs con una verificación en curso (evita verificaciones simultáneas del mismo objetivo)
+    pub uptime_inflight: Mutex<HashSet<Uuid>>,
 }
 
 impl AppState {
-    pub fn new(db: PgPool, cfg: &crate::config::Config, agent_ca: Option<AgentCa>) -> Self {
+    pub fn new(
+        db: PgPool,
+        cfg: &crate::config::Config,
+        agent_ca: Option<AgentCa>,
+        settings_cipher: Option<SettingsCipher>,
+    ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         Self {
             db,
@@ -35,6 +48,8 @@ impl AppState {
             cookie_secure: cfg.cookie_secure,
             agent_ca,
             public_url: cfg.public_url.clone(),
+            settings_cipher,
+            uptime_inflight: Mutex::new(HashSet::new()),
         }
     }
 }

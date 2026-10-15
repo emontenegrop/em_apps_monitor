@@ -1,17 +1,22 @@
 import axios from 'axios'
 import type {
   Container,
+  ContainerHistoryPoint,
   ContainerMetrics,
   CreateServerPayload,
   DiskUsage,
   DockerInfo,
+  History,
+  HistoryRange,
+  HostHistoryPoint,
   HostMetrics,
   RuntimeInfo,
   RuntimeKind,
   Server,
 } from '@/types'
 
-const http = axios.create({ baseURL: '/api' })
+/** Cliente de la API con redirección al login ante un 401 */
+export const http = axios.create({ baseURL: '/api' })
 
 let loggingOut = false
 
@@ -111,4 +116,16 @@ export const metricsApi = {
     http.get<DiskUsage[]>(`/servers/${serverId}/metrics/disks`).then(r => r.data),
   runtimes: (serverId: string) =>
     http.get<RuntimeInfo[]>(`/servers/${serverId}/runtimes`).then(r => r.data),
+  /** Historial agregado de todos los servidores o de uno */
+  hostHistory: (range: HistoryRange, serverId?: string) =>
+    http
+      .get<History<HostHistoryPoint>>('/metrics/history', { params: { range, server_id: serverId } })
+      .then(r => r.data),
+  /** Historial agregado de los contenedores de un servidor */
+  containersHistory: (serverId: string, range: HistoryRange) =>
+    http
+      .get<History<ContainerHistoryPoint>>(`/servers/${serverId}/metrics/containers/history`, {
+        params: { range },
+      })
+      .then(r => r.data),
 }
